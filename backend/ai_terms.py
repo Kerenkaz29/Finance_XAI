@@ -210,7 +210,7 @@ def get_ai_dice_scenario_explanations(
 
     is_expert = (expertise == "expert")
     tone = (
-        "technical and concise for financial analysts"
+        "technical and analytical for financial analysts"
         if is_expert
         else "plain language for non-experts"
     )
@@ -223,15 +223,18 @@ Input scenarios JSON:
 {payload}
 
 Task:
-For each scenario, write exactly ONE sentence explaining:
-1) what key changes are suggested,
-2) how those changes move the decision toward the target class.
+For each scenario, write a detailed explanation with:
+1) What key feature changes are suggested.
+2) Why those changes move the prediction toward the target class.
+3) What trade-off or practical implication the user should note.
 
 Rules:
 - Return ONLY a JSON array of strings.
 - Same number/order as input scenarios.
 - No markdown, no extra text.
-- Max 24 words per sentence.
+- Each explanation should be 2-3 sentences.
+- Expert mode: include technical wording (risk drivers, model signal, feature sensitivity).
+- Non-expert mode: keep wording simple and practical.
 """
 
     response = client.models.generate_content(
