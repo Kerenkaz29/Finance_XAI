@@ -60,7 +60,7 @@ export default function Dashboard() {
 
   // When dataset changes: load list of samples and auto-load first sample (cvision-style so data is visible)
   useEffect(() => {
-    setFeatures('')
+    setFeatures(DEMO_FEATURES[dataset].join(', '))
     setPrediction(null)
     setXaiData(null)
     setError(null)
@@ -80,7 +80,9 @@ export default function Dashboard() {
             setLoanDetails({ loan_id: sample.loan_id, loan_status: sample.loan_status })
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          setFeatures(DEMO_FEATURES.loan.join(', '))
+        })
     } else if (dataset === 'bankruptcy') {
       getBankruptcySamples(30)
         .then((data) => {
@@ -112,7 +114,9 @@ export default function Dashboard() {
         .then((sample) => {
           if (sample?.features?.length) setFeatures(sample.features.join(', '))
         })
-        .catch(() => {})
+        .catch(() => {
+          setFeatures(DEMO_FEATURES.credit_risk.join(', '))
+        })
     }
   }, [dataset, apiReady])
 
