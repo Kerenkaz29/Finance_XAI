@@ -32,3 +32,10 @@ EXPERTISE_LEVELS = ["expert", "non_expert"]
 
 # Optional: Gemini API key for AI-generated feature labels (set to enable dynamic wording)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", "")).strip()
+
+CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "https://finance-xai.vercel.app/",
+]
