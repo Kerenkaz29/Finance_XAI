@@ -35,7 +35,10 @@ function LoadingOverlay({ done, total, current }) {
 }
 
 function App() {
-  const [modelsReady, setModelsReady] = useState(false)
+  const [modelsReady, setModelsReady] = useState(
+    () => sessionStorage.getItem('models_ready_once') === '1',
+  )
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0, current: '' })
 
   useEffect(() => {
@@ -45,7 +48,17 @@ function App() {
       setProgress({ done: data.done || 0, total: data.total || 0, current: data.current || '' })
       if (data.ready) {
         setModelsReady(true)
+        setShowLoadingOverlay(false)
+        sessionStorage.setItem('models_ready_once', '1')
         clearInterval(interval)
+        return
+      }
+      // Show blocking overlay only for genuine first-time download.
+      // Avoid flashing it on every page refresh.
+      const readySeenOnce = sessionStorage.getItem('models_ready_once') === '1'
+      const isDownloading = (data.total || 0) > 0 && (data.done || 0) < (data.total || 0)
+      if (!readySeenOnce && isDownloading) {
+        setShowLoadingOverlay(true)
       }
     }
     check()
@@ -55,7 +68,9 @@ function App() {
 
   return (
     <ExpertiseProvider>
-      {!modelsReady && <LoadingOverlay done={progress.done} total={progress.total} current={progress.current} />}
+      {!modelsReady && showLoadingOverlay && (
+        <LoadingOverlay done={progress.done} total={progress.total} current={progress.current} />
+      )}
       <BrowserRouter>
         <nav className="border-b border-gray-200 bg-white px-4 py-2 shadow-sm">
           <div className="mx-auto flex max-w-6xl gap-6">
