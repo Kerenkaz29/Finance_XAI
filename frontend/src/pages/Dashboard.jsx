@@ -271,7 +271,7 @@ export default function Dashboard() {
               )}
               {dataset === 'bankruptcy' && (
                 <p className="text-sm text-gray-700">
-                  Company: <span className="font-bold text-slate-900">{companyName}</span>
+                  Company ID: <span className="font-bold text-slate-900">{companyName}</span>
                 </p>
               )}
               {dataset === 'credit_risk' && (
