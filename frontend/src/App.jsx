@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import { ExpertiseProvider } from './context/ExpertiseContext'
 import Dashboard from './pages/Dashboard'
 import Survey from './pages/Survey'
@@ -72,10 +72,33 @@ function App() {
         <LoadingOverlay done={progress.done} total={progress.total} current={progress.current} />
       )}
       <BrowserRouter>
-        <nav className="border-b border-gray-200 bg-white px-4 py-2 shadow-sm">
-          <div className="mx-auto flex max-w-6xl gap-6">
-            <Link to="/" className="text-sm font-medium text-primary-700 hover:text-primary-800">Dashboard</Link>
-            <Link to="/survey" className="text-sm font-medium text-gray-600 hover:text-gray-900">Survey</Link>
+        <nav className="border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
+          <div className="mx-auto flex max-w-6xl gap-3">
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) =>
+                `rounded-lg px-4 py-2 text-lg font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border border-transparent'
+                }`
+              }
+            >
+              Dashboard
+            </NavLink>
+            <NavLink
+              to="/survey"
+              className={({ isActive }) =>
+                `rounded-lg px-4 py-2 text-lg font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border border-transparent'
+                }`
+              }
+            >
+              Survey
+            </NavLink>
           </div>
         </nav>
         <Routes>
