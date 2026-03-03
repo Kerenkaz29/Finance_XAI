@@ -9,7 +9,71 @@ from typing import List, Dict
 
 from config import GEMINI_API_KEY
 
-_cache: Dict[tuple, Dict[str, str]] = {}
+PROMPT_VERSION = "v7_stronger_technical_split"
+
+
+def _force_nonexpert_surface(label: str) -> str:
+    """
+    Enforce a visibly non-expert style surface form so Expert/Non-Expert
+    labels are clearly different in the UI.
+    """
+    text = str(label or "").strip()
+    if not text:
+        return text
+    # Non-expert labels should be plain, without forced "Your ..." prefix.
+    return text
+
+
+def _normalize_nonexpert_label(label: str) -> str:
+    """Force plain-language surface and remove technical jargon."""
+    text = _force_nonexpert_surface(label)
+    replacements = [
+        (r"\bratio\b", "level"),
+        (r"\bcoefficient\b", "score"),
+        (r"\bvolatility\b", "changes over time"),
+        (r"\bleverage\b", "debt level"),
+        (r"\bsolvency\b", "ability to pay debts"),
+        (r"\bretained earnings\b", "saved profit"),
+        (r"\bcoverage\b", "ability to pay"),
+        (r"\bcapital\b", "money"),
+        (r"\bequity\b", "owned value"),
+        (r"\bliabilities?\b", "debts"),
+        (r"\basset turnover\b", "business activity"),
+        (r"\bliquidity\b", "cash availability"),
+        (r"\bdefault probability\b", "chance of default"),
+        (r"\bdebt[- ]to[- ]income\b", "debt level"),
+        (r"\bdelinquency\b", "late payment history"),
+        (r"\butilization\b", "usage"),
+    ]
+    for pattern, repl in replacements:
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _normalize_expert_label(label: str) -> str:
+    """Force technical analyst-style wording."""
+    text = str(label or "").strip()
+    text = re.sub(r"^\s*your\s+", "", text, flags=re.IGNORECASE)
+    replacements = [
+        (r"\bmonthly income\b", "Applicant Income"),
+        (r"\bincome\b", "Income"),
+        (r"\bdebt level\b", "Debt Ratio"),
+        (r"\bdebt\b", "Debt Exposure"),
+        (r"\bpayment history\b", "Credit History"),
+        (r"\bcredit score\b", "Credit Score"),
+        (r"\bability to pay interest\b", "Interest Coverage Ratio"),
+        (r"\bsaved profit\b", "Retained Earnings"),
+        (r"\bcash availability\b", "Liquidity"),
+        (r"\bbusiness activity\b", "Asset Turnover"),
+        (r"\bchance of default\b", "Default Risk"),
+        (r"\blate payment history\b", "Delinquency History"),
+    ]
+    for pattern, repl in replacements:
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+    text = text.replace("_", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.title()
 
 
 def get_ai_feature_labels(
@@ -28,32 +92,74 @@ def get_ai_feature_labels(
     if not feature_names:
         raise RuntimeError("No feature names provided to Gemini labeller.")
 
-    key = (dataset, for_expert, tuple(sorted(feature_names)))
-    if key in _cache:
-        return _cache[key]
-
     from google import genai
     from google.genai import types as genai_types
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
     audience = "financial professionals" if for_expert else "general users (no ML background)"
-    style = (
-        "Use precise technical or variable-style names (e.g. 'Applicant Income', 'Credit History'). "
-        "No underscores; use spaces. Short labels."
-        if for_expert
-        else "Use simple, everyday language (e.g. 'Your monthly income', 'Your past credit history'). "
-        "Short and clear for non-experts."
-    )
+    mode_name = "EXPERT" if for_expert else "NON_EXPERT"
+    if for_expert:
+        style_rules = """
+MODE = EXPERT
+Goal: technical analyst-style labels.
+Rules:
+1) Use finance/credit terminology where relevant.
+2) Prefer technical terms such as: ratio, exposure, leverage, coverage, liquidity, delinquency, utilization, turnover, solvency, risk.
+3) Keep labels short: 2-5 words.
+4) Use noun-phrase labels (no full sentences).
+5) Use Title Case, no underscores.
+6) Do NOT use second-person wording ("you", "your").
+7) Do NOT simplify technical terms.
+8) Avoid generic words like "money", "things", "status".
+Good examples:
+- ApplicantIncome -> Applicant Income
+- Debt_ratio_percent -> Debt-to-Asset Ratio
+- Interest_Coverage_Ratio -> Interest Coverage Ratio
+- Borrowing_dependency -> Borrowing Dependency
+- Credit_History -> Delinquency History
+"""
+    else:
+        style_rules = """
+MODE = NON_EXPERT
+Goal: plain language labels for everyday users.
+Rules:
+1) Use simple daily words only.
+3) Keep labels short: 2-6 words.
+4) STRICTLY avoid technical words:
+   ratio, leverage, coverage, delinquency, utilization, solvency,
+   turnover, exposure, liquidity, retained earnings, equity, liabilities.
+5) Prefer plain phrases users instantly understand:
+   - "Monthly income"
+   - "Debt level"
+   - "History of late payments"
+   - "Available cash"
+6) No abbreviations and no jargon.
+Good examples:
+- ApplicantIncome -> Monthly income
+- Debt_ratio_percent -> Debt level
+- Interest_Coverage_Ratio -> Ability to pay interest
+- Credit_History -> Payment history
+- Borrowing_dependency -> Need to borrow
+"""
 
-    prompt = f"""You are a financial ML expert. For a {dataset} prediction model, map each feature name below to a short display label for {audience}.
+    prompt = f"""You are generating UI labels for a {dataset} risk model.
+Audience: {audience}
+Mode: {mode_name}
 
-Style: {style}
+Follow these rules strictly:
+{style_rules}
+Critical contrast rule:
+- EXPERT labels must read like analyst terminology.
+- NON_EXPERT labels must read like everyday language.
+- The two modes must be noticeably different in wording style.
 
 Feature names (use these exact strings as JSON keys):
 {chr(10).join(feature_names)}
 
-Reply with ONLY a JSON object: each key is one of the feature names above, each value is the display label. No markdown, no explanation. Example: {{"ApplicantIncome": "Applicant Income", "Credit_History": "Credit History"}}"""
+Reply with ONLY a JSON object: each key is one of the feature names above, each value is the display label.
+No markdown. No explanation. No extra keys.
+If any label violates rules, correct it before final answer."""
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
@@ -73,7 +179,11 @@ Reply with ONLY a JSON object: each key is one of the feature names above, each 
     for f in feature_names:
         if f not in mapping or not mapping[f]:
             raise RuntimeError(f"Gemini did not return a label for feature '{f}'.")
-        result[f] = str(mapping[f]).strip()
+        label = str(mapping[f]).strip()
+        if for_expert:
+            label = _normalize_expert_label(label)
+        else:
+            label = _normalize_nonexpert_label(label)
+        result[f] = label
 
-    _cache[key] = result
     return result

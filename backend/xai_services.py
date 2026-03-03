@@ -4,6 +4,7 @@ Returns JSON-friendly structures for expert vs non-expert views.
 """
 import numpy as np
 import json
+import re
 from typing import List, Dict, Any, Optional
 
 from config import EXPERTISE_LEVELS
@@ -50,6 +51,48 @@ def get_feature_display_names(dataset: str, feature_names: List[str], for_expert
 def _feature_name_for_expert(raw_name: str) -> str:
     """Format raw feature name for expert view: no underscores, title-style (e.g. Loan_Amount_Term -> Loan Amount Term)."""
     return raw_name.replace("_", " ").strip()
+
+
+def _replace_lime_rule_feature(rule_text: str, feature_names: List[str], display_names: Dict[str, str]) -> str:
+    """
+    LIME returns rule strings (e.g. '-0.2 < Credit_History <= 0.7').
+    Replace only the feature-name token with the Gemini label while keeping numeric bounds/operators.
+    """
+    if not rule_text:
+        return rule_text
+
+    # Longer names first to avoid partial matches.
+    for raw_name in sorted(feature_names, key=len, reverse=True):
+        replacement = display_names.get(raw_name, _feature_name_for_expert(raw_name))
+        variants = [
+            raw_name,
+            raw_name.replace("_", " "),
+            raw_name.replace(" ", "_"),
+        ]
+        for variant in variants:
+            if not variant:
+                continue
+            pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(variant)}(?![A-Za-z0-9_])")
+            if pattern.search(rule_text):
+                return pattern.sub(replacement, rule_text, count=1)
+
+    # Fallback path for rules where feature token formatting differs from feature_names:
+    # preserve numeric bounds/operators and rewrite only the middle feature chunk.
+    two_sided = re.match(r"^\s*([-+]?\d*\.?\d+)\s*<\s*(.+?)\s*<=\s*([-+]?\d*\.?\d+)\s*$", rule_text)
+    if two_sided:
+        lo, feature_chunk, hi = two_sided.groups()
+        mapped = display_names.get(feature_chunk) or display_names.get(feature_chunk.replace(" ", "_"))
+        if mapped:
+            return f"{lo} < {mapped} <= {hi}"
+
+    one_sided = re.match(r"^\s*(.+?)\s*(<=|>=|<|>)\s*([-+]?\d*\.?\d+)\s*$", rule_text)
+    if one_sided:
+        feature_chunk, op, val = one_sided.groups()
+        mapped = display_names.get(feature_chunk) or display_names.get(feature_chunk.replace(" ", "_"))
+        if mapped:
+            return f"{mapped} {op} {val}"
+
+    return rule_text
 
 
 def _scale_importance(values: np.ndarray, scale_max: float = 10.0) -> List[float]:
@@ -192,7 +235,10 @@ def get_lime_explanation(
         scaled = _scale_importance(weights, 10.0)
 
         display_names = get_feature_display_names(dataset, feature_names, for_expert=(expertise == "expert"))
-        names_display = [display_names.get(n, _feature_name_for_expert(n)) for n in names]
+        names_display = [
+            _replace_lime_rule_feature(n, feature_names, display_names)
+            for n in names
+        ]
         if expertise == "non_expert":
             return {
                 "method": "LIME",
