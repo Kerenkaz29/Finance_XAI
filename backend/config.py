@@ -21,9 +21,6 @@ TRAINING_OUTPUT = os.environ.get(
 DATASETS = ["loan", "bankruptcy", "credit_risk"]
 DEFAULT_MODEL_TYPE = "rf"  # rf | gb | lr | mlp
 
-# CORS
-CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
-
 # Public base URL for pre-generated assets (images). Set when behind proxy so image_url points to backend.
 BASE_URL = os.environ.get("XAI_BASE_URL", "http://localhost:8000")
 
