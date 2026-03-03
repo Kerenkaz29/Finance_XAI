@@ -168,9 +168,8 @@ def get_lime_explanation(
 
     try:
         def pred_fn(x):
-            if model_type == "mlp":
-                return model.predict_proba(x)[:, 1]
-            return model.predict_proba(x)[:, 1]
+            # LIME classification expects (n_samples, n_classes) probabilities.
+            return model.predict_proba(x)
 
         explainer = lime.lime_tabular.LimeTabularExplainer(
             X_train,
@@ -184,8 +183,10 @@ def get_lime_explanation(
             num_features=num_features,
             top_labels=1,
         )
-        # List of (feature_idx, weight)
-        list_exp = exp.as_list(label=1)
+        # Explain the predicted class for this instance.
+        pred_probs = model.predict_proba(X_instance)
+        pred_label = int(np.argmax(pred_probs[0])) if pred_probs.ndim == 2 else 1
+        list_exp = exp.as_list(label=pred_label)
         names = [x[0] for x in list_exp]
         weights = [float(x[1]) for x in list_exp]
         scaled = _scale_importance(weights, 10.0)
