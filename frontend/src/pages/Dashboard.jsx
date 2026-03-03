@@ -180,6 +180,16 @@ export default function Dashboard() {
   }, [dataset, features, mode, method])
 
   const isExpert = mode === 'expert'
+  const probabilityLabelsByDataset = {
+    loan: ['Denied', 'Approved'],
+    bankruptcy: ['Alive', 'Bankrupt'],
+    credit_risk: ['No default', 'Default'],
+  }
+  const [negativeLabel, positiveLabel] = probabilityLabelsByDataset[dataset] || ['Class 0', 'Class 1']
+  const positiveProbability = Number.isFinite(prediction?.probability)
+    ? Math.min(1, Math.max(0, Number(prediction.probability)))
+    : null
+  const negativeProbability = positiveProbability == null ? null : 1 - positiveProbability
   const title = isExpert ? 'Expert Analysis Dashboard' : 'Simplified Analysis Interface'
   const subtitle = isExpert
     ? 'Advanced model interpretation tools for financial professionals. Select your prediction model and explainability method to generate detailed technical insights.'
@@ -321,6 +331,48 @@ export default function Dashboard() {
                     alt="LIME local explanation"
                     className="max-w-full rounded border border-gray-100"
                   />
+                  {prediction && positiveProbability != null && (
+                    <div className="mt-5 border-t border-gray-200 pt-4">
+                      <div className="mx-auto w-full max-w-xl rounded-2xl border border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white p-6 shadow-sm">
+                        <div>
+                          <div>
+                            <h3 className="text-base font-semibold tracking-wide text-slate-800">Class probabilities</h3>
+                            <p className="mt-0.5 text-xs text-slate-500">Model confidence by class</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 space-y-4">
+                          <div>
+                            <div className="mb-1.5 grid grid-cols-[1fr_auto] items-center text-sm text-gray-700">
+                              <span className="font-medium">{negativeLabel}</span>
+                              <span className="border-l border-slate-200 pl-3 font-semibold tabular-nums text-slate-700">
+                                {(negativeProbability * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="h-3.5 overflow-hidden rounded-full border border-blue-100 bg-blue-50">
+                              <div
+                                className="h-full rounded-full bg-blue-500 transition-all"
+                                style={{ width: `${(negativeProbability * 100).toFixed(2)}%` }}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="mb-1.5 grid grid-cols-[1fr_auto] items-center text-sm text-gray-700">
+                              <span className="font-medium">{positiveLabel}</span>
+                              <span className="border-l border-slate-200 pl-3 font-semibold tabular-nums text-slate-700">
+                                {(positiveProbability * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="h-3.5 overflow-hidden rounded-full border border-orange-100 bg-orange-50">
+                              <div
+                                className="h-full rounded-full bg-orange-500 transition-all"
+                                style={{ width: `${(positiveProbability * 100).toFixed(2)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <LIMEChart data={xaiData} title={isExpert ? 'LIME local explanation (Expert View)' : 'Local explanation (Non-Expert View)'} />
