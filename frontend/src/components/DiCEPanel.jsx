@@ -16,7 +16,9 @@ export function DiCEPanel({ data }) {
     )
   }
   const cfs = data.counterfactuals || []
-  const useDisplay = data.expertise === 'non_expert' && cfs[0]?.changes_display
+  const useDisplay = !!cfs[0]?.changes_display
+  const formatName = (name) => String(name || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+
   const currentProb = Number.isFinite(data.current_probability) ? data.current_probability : null
   const bestProb = Number.isFinite(data.best_counterfactual_probability) ? data.best_counterfactual_probability : null
   const potentialGain = Number.isFinite(data.potential_gain) ? data.potential_gain : null
@@ -52,7 +54,7 @@ export function DiCEPanel({ data }) {
               <ul className="mt-2 space-y-1 text-sm">
                 {(useDisplay ? Object.entries(cf.changes_display || {}) : Object.entries(cf.changes || {})).map(([name, v]) => (
                   <li key={name}>
-                    <strong>{name}</strong>: {v.from} → {v.to}
+                    <strong>{formatName(name)}</strong>: {v.from} → {v.to}
                   </li>
                 ))}
               </ul>

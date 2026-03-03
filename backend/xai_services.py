@@ -371,7 +371,8 @@ def get_dice_counterfactuals(
         if get_ai_dice_scenario_explanations:
             scenario_payload = []
             for cf in counterfactuals:
-                changes_src = cf.get("changes_display") if expertise == "non_expert" else cf.get("changes")
+                # Always send cleaned display names to Gemini (no underscores).
+                changes_src = cf.get("changes_display") or cf.get("changes")
                 scenario_payload.append({
                     "target_probability": cf.get("target_probability"),
                     "changes": changes_src or {},

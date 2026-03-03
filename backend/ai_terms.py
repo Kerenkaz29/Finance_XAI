@@ -27,6 +27,7 @@ def _force_nonexpert_surface(label: str) -> str:
 def _normalize_nonexpert_label(label: str) -> str:
     """Force plain-language surface and remove technical jargon."""
     text = _force_nonexpert_surface(label)
+    text = text.replace("_", " ")
     replacements = [
         (r"\bratio\b", "level"),
         (r"\bcoefficient\b", "score"),
@@ -55,6 +56,7 @@ def _normalize_expert_label(label: str) -> str:
     """Force technical analyst-style wording."""
     text = str(label or "").strip()
     text = re.sub(r"^\s*your\s+", "", text, flags=re.IGNORECASE)
+    text = text.replace("_", " ")
     replacements = [
         (r"\bmonthly income\b", "Applicant Income"),
         (r"\bincome\b", "Income"),
@@ -255,6 +257,7 @@ Rules:
             f"Gemini returned {len(arr)} scenario explanations, expected {len(scenarios)}."
         )
     out = [str(x).strip() for x in arr]
+    out = [re.sub(r"\s+", " ", s.replace("_", " ")).strip() for s in out]
     if any(not s for s in out):
         raise RuntimeError("Gemini returned an empty DiCE scenario explanation.")
     return out
