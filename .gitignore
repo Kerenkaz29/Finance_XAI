@@ -1,0 +1,23 @@
+# Environment and secrets (do not commit API keys)
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+
+# Training output (generated artifacts — re-create by running train_models.py)
+training/output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

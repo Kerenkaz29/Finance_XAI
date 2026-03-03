@@ -1,0 +1,16 @@
+# XAI Financial Services - Model Training
+# Python 3.10+
+
+# Data & preprocessing
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# Deep Learning
+torch>=2.0.0
+
+# Export & persistence
+joblib>=1.3.0
+
+# Optional: progress and logging
+tqdm>=4.65.0

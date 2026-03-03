@@ -1,0 +1,26 @@
+# XAI Financial Services — Backend (API & XAI Engine)
+# Python 3.10+
+
+# API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# ML inference (must match training stack)
+numpy>=1.24.0
+scikit-learn>=1.3.0
+pandas>=2.0.0
+joblib>=1.3.0
+torch>=2.0.0
+
+# XAI libraries
+shap>=0.43.0
+lime>=0.2.0
+dice-ml>=0.11.0
+
+# Utils
+pydantic>=2.0.0
+matplotlib>=3.7.0
+python-dotenv>=1.0.0
+
+# Gemini for AI-generated feature wording (expert vs non-expert)
+google-genai>=1.0.0
