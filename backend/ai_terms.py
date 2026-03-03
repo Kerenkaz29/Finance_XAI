@@ -5,7 +5,7 @@ Raises RuntimeError if the key is missing or the call fails.
 """
 import json
 import re
-from typing import List, Dict
+from typing import List, Dict, Any
 
 from config import GEMINI_API_KEY
 
@@ -187,3 +187,71 @@ If any label violates rules, correct it before final answer."""
         result[f] = label
 
     return result
+
+
+def get_ai_dice_scenario_explanations(
+    *,
+    dataset: str,
+    expertise: str,
+    scenarios: List[Dict[str, Any]],
+) -> List[str]:
+    """
+    Use Gemini to explain each DiCE scenario in natural language.
+    Returns one explanation per scenario (same order as input).
+    Raises RuntimeError if GEMINI_API_KEY is missing or output is invalid.
+    """
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set. Add it to .env and restart the backend.")
+    if not scenarios:
+        return []
+
+    from google import genai
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    is_expert = (expertise == "expert")
+    tone = (
+        "technical and concise for financial analysts"
+        if is_expert
+        else "plain language for non-experts"
+    )
+
+    payload = json.dumps(scenarios, ensure_ascii=False)
+    prompt = f"""You explain counterfactual scenarios for a {dataset} model.
+Audience tone: {tone}
+
+Input scenarios JSON:
+{payload}
+
+Task:
+For each scenario, write exactly ONE sentence explaining:
+1) what key changes are suggested,
+2) how those changes move the decision toward the target class.
+
+Rules:
+- Return ONLY a JSON array of strings.
+- Same number/order as input scenarios.
+- No markdown, no extra text.
+- Max 24 words per sentence.
+"""
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
+    text = (response.text or "").strip()
+    if "```" in text:
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    text = text.strip()
+
+    arr = json.loads(text)
+    if not isinstance(arr, list):
+        raise RuntimeError(f"Gemini returned invalid scenario explanations format: {text[:200]}")
+    if len(arr) != len(scenarios):
+        raise RuntimeError(
+            f"Gemini returned {len(arr)} scenario explanations, expected {len(scenarios)}."
+        )
+    out = [str(x).strip() for x in arr]
+    if any(not s for s in out):
+        raise RuntimeError("Gemini returned an empty DiCE scenario explanation.")
+    return out

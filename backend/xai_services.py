@@ -10,9 +10,10 @@ from typing import List, Dict, Any, Optional
 from config import EXPERTISE_LEVELS
 
 try:
-    from ai_terms import get_ai_feature_labels
+    from ai_terms import get_ai_feature_labels, get_ai_dice_scenario_explanations
 except ImportError:
     get_ai_feature_labels = None
+    get_ai_dice_scenario_explanations = None
 
 # Optional imports so backend can start even if XAI libs missing
 try:
@@ -281,20 +282,43 @@ def get_dice_counterfactuals(
         X_train_df = pd.DataFrame(X_train, columns=feature_names)
         X_instance_df = pd.DataFrame(X_instance, columns=feature_names)
 
+        class NumpyInputModel:
+            """Adapter to ensure sklearn estimators receive numpy arrays (no feature-name warnings)."""
+            def __init__(self, m):
+                self.m = m
+            def predict(self, x):
+                return self.m.predict(np.asarray(x))
+            def predict_proba(self, x):
+                return self.m.predict_proba(np.asarray(x))
+
+        # DiCE requires an explicit outcome column in the training dataframe.
         if model_type == "mlp":
-            d = dice_ml.Data(dataframe=X_train_df, continuous_features=feature_names, outcome_name="outcome")
-            # DiCE model wrapper for PyTorch-style predict_proba
             class SklearnWrapper:
                 def __init__(self, m):
                     self.m = m
                 def predict(self, x):
-                    return self.m.predict(x)
+                    return self.m.predict(np.asarray(x))
                 def predict_proba(self, x):
-                    return self.m.predict_proba(x)
-            backend = dice_ml.Model(model=SklearnWrapper(model), backend="sklearn")
+                    return self.m.predict_proba(np.asarray(x))
+            backend_model = NumpyInputModel(SklearnWrapper(model))
         else:
-            d = dice_ml.Data(dataframe=X_train_df, continuous_features=feature_names, outcome_name="outcome")
-            backend = dice_ml.Model(model=model, backend="sklearn")
+            backend_model = NumpyInputModel(model)
+
+        y_train_pred = np.asarray(backend_model.predict(X_train)).astype(int).reshape(-1)
+        if len(y_train_pred) != len(X_train_df):
+            raise RuntimeError(
+                f"DiCE setup failed: predicted labels length {len(y_train_pred)} "
+                f"does not match X_train length {len(X_train_df)}."
+            )
+        X_train_with_outcome = X_train_df.copy()
+        X_train_with_outcome["outcome"] = y_train_pred
+
+        d = dice_ml.Data(
+            dataframe=X_train_with_outcome,
+            continuous_features=feature_names,
+            outcome_name="outcome",
+        )
+        backend = dice_ml.Model(model=backend_model, backend="sklearn")
         exp = dice_ml.Dice(d, backend)
         # Generate counterfactuals
         dice_exp = exp.generate_counterfactuals(
@@ -312,6 +336,19 @@ def get_dice_counterfactuals(
             cf_df = cfs
         # Build simple list of changes per CF
         instance_vals = X_instance_df.iloc[0]
+        current_pred = int(np.asarray(backend_model.predict(X_instance)).reshape(-1)[0])
+        target_pred = 1 - current_pred
+        # Pre-compute CF probabilities for the opposite class when available.
+        cf_target_probs = None
+        try:
+            cf_matrix = cf_df[feature_names].to_numpy(dtype=float) if len(cf_df) else np.empty((0, len(feature_names)))
+            if len(cf_matrix):
+                p_cf = np.asarray(backend_model.predict_proba(cf_matrix))
+                if p_cf.ndim == 2 and p_cf.shape[1] >= 2:
+                    cf_target_probs = p_cf[:, target_pred]
+        except Exception:
+            cf_target_probs = None
+
         counterfactuals = []
         for i in range(min(num_cf, len(cf_df))):
             row = cf_df.iloc[i]
@@ -322,14 +359,60 @@ def get_dice_counterfactuals(
                     nv = float(row[c])
                     if abs(ov - nv) > 1e-6:
                         changes[c] = {"from": round(ov, 4), "to": round(nv, 4)}
-            counterfactuals.append({"changes": changes})
+            cf_item = {"changes": changes}
+            if cf_target_probs is not None and i < len(cf_target_probs):
+                cf_item["target_probability"] = float(cf_target_probs[i])
+            counterfactuals.append(cf_item)
         display_names = get_feature_display_names(dataset, feature_names, for_expert=(expertise == "expert"))
         for cf in counterfactuals:
             cf["changes_display"] = {display_names.get(k, _feature_name_for_expert(k)): v for k, v in cf["changes"].items()}
+
+        # Gemini explanation for each scenario.
+        if get_ai_dice_scenario_explanations:
+            scenario_payload = []
+            for cf in counterfactuals:
+                changes_src = cf.get("changes_display") if expertise == "non_expert" else cf.get("changes")
+                scenario_payload.append({
+                    "target_probability": cf.get("target_probability"),
+                    "changes": changes_src or {},
+                })
+            ai_explanations = get_ai_dice_scenario_explanations(
+                dataset=dataset,
+                expertise=expertise,
+                scenarios=scenario_payload,
+            )
+            for idx, text in enumerate(ai_explanations):
+                if idx < len(counterfactuals):
+                    counterfactuals[idx]["ai_explanation"] = text
+
+        # Narrative summary fields for a report-like DiCE panel.
+        current_prob = None
+        best_cf_prob = None
+        try:
+            p_now = np.asarray(backend_model.predict_proba(X_instance))
+            if p_now.ndim == 2 and p_now.shape[1] >= 2:
+                current_prob = float(p_now[0, target_pred])
+                if cf_target_probs is not None and len(cf_target_probs):
+                    best_cf_prob = float(np.max(cf_target_probs))
+        except Exception:
+            pass
+
+        scenario_summaries = []
+        for i, cf in enumerate(counterfactuals, start=1):
+            src = cf.get("changes_display") if expertise == "non_expert" else cf.get("changes")
+            parts = [f"{k}: {v['from']} -> {v['to']}" for k, v in (src or {}).items()]
+            scenario_summaries.append(
+                f"Scenario {i}: " + (", ".join(parts) if parts else "No feature changes suggested.")
+            )
+
         return {
             "method": "DiCE",
             "expertise": expertise,
             "counterfactuals": counterfactuals,
+            "scenario_summaries": scenario_summaries,
+            "current_probability": current_prob,
+            "best_counterfactual_probability": best_cf_prob,
+            "potential_gain": (best_cf_prob - current_prob) if current_prob is not None and best_cf_prob is not None else None,
             "description": "What changes would flip the decision? These are example changes." if expertise == "non_expert" else "DiCE counterfactuals: minimal feature perturbations to flip predicted class.",
         }
     except Exception as e:

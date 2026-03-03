@@ -655,7 +655,7 @@ def predict_endpoint(req: PredictionRequest):
         raise HTTPException(400, f"Expected {scaler.n_features_in_} features, got {len(req.features)}")
     try:
         X_df = pd.DataFrame(X, columns=feature_names)
-        X_scaled = scaler.transform(X_df)
+        X_scaled = np.asarray(scaler.transform(X_df))
         pred = predict(model, X_scaled, model_type)
         proba = predict_proba(model, X_scaled, model_type)
         if proba.shape[1] >= 2:
