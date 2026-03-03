@@ -234,6 +234,7 @@ Rules:
 - Return ONLY a JSON array of strings.
 - Same number/order as input scenarios.
 - No markdown, no extra text.
+    - Never return objects/dictionaries.
 - Each explanation should be 2-3 sentences.
 - Expert mode: include technical wording (risk drivers, model signal, feature sensitivity).
 - Non-expert mode: keep wording simple and practical.
@@ -256,8 +257,36 @@ Rules:
         raise RuntimeError(
             f"Gemini returned {len(arr)} scenario explanations, expected {len(scenarios)}."
         )
-    out = [str(x).strip() for x in arr]
-    out = [re.sub(r"\s+", " ", s.replace("_", " ")).strip() for s in out]
+    # Keep Gemini wording exactly as returned (no rewriting).
+    def _fallback_from_object(obj: Any) -> str:
+        if isinstance(obj, dict):
+            for k in ("explanation", "summary", "text", "message"):
+                v = obj.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            changes = obj.get("changes")
+            target_probability = obj.get("target_probability")
+            if isinstance(changes, dict) and changes:
+                parts = []
+                for name, vals in changes.items():
+                    if isinstance(vals, dict) and "from" in vals and "to" in vals:
+                        parts.append(f"{name} from {vals['from']} to {vals['to']}")
+                if parts:
+                    prob_part = ""
+                    if isinstance(target_probability, (int, float)):
+                        prob_part = f" to move the target probability toward {float(target_probability) * 100:.1f}%"
+                    return f"This scenario suggests changing {', '.join(parts)}{prob_part}."
+        return str(obj).strip()
+
+    out = []
+    for item in arr:
+        if isinstance(item, str):
+            txt = item.strip()
+        else:
+            txt = _fallback_from_object(item)
+        txt = re.sub(r"\s+", " ", txt).strip()
+        out.append(txt)
+
     if any(not s for s in out):
         raise RuntimeError("Gemini returned an empty DiCE scenario explanation.")
     return out

@@ -5,6 +5,7 @@ Returns JSON-friendly structures for expert vs non-expert views.
 import numpy as np
 import json
 import re
+import os
 from typing import List, Dict, Any, Optional
 
 from config import EXPERTISE_LEVELS
@@ -32,6 +33,12 @@ try:
     DICE_AVAILABLE = True
 except ImportError:
     DICE_AVAILABLE = False
+
+
+# DiCE speed controls (fast by default, Gemini explanations enabled)
+DICE_FAST_MODE = os.environ.get("XAI_DICE_FAST_MODE", "1").strip().lower() in ("1", "true", "yes", "on")
+DICE_DEFAULT_NUM_CF = int(os.environ.get("XAI_DICE_NUM_CF", "1"))
+DICE_ENABLE_GEMINI_EXPLANATIONS = os.environ.get("XAI_DICE_GEMINI", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
 
@@ -271,13 +278,17 @@ def get_dice_counterfactuals(
     dataset: str,
     expertise: str,
     model_type: str = "rf",
-    num_cf: int = 3,
+    num_cf: Optional[int] = None,
 ) -> Dict[str, Any]:
     """DiCE counterfactuals: what to change to flip the outcome."""
     if not DICE_AVAILABLE:
         return {"error": "dice_ml not installed", "counterfactuals": []}
 
     try:
+        if num_cf is None:
+            num_cf = DICE_DEFAULT_NUM_CF
+        num_cf = max(1, int(num_cf))
+
         import pandas as pd
         X_train_df = pd.DataFrame(X_train, columns=feature_names)
         X_instance_df = pd.DataFrame(X_instance, columns=feature_names)
@@ -319,7 +330,7 @@ def get_dice_counterfactuals(
             outcome_name="outcome",
         )
         backend = dice_ml.Model(model=backend_model, backend="sklearn")
-        exp = dice_ml.Dice(d, backend)
+        exp = dice_ml.Dice(d, backend, method="random" if DICE_FAST_MODE else "genetic")
         # Generate counterfactuals
         dice_exp = exp.generate_counterfactuals(
             X_instance_df,
@@ -368,7 +379,7 @@ def get_dice_counterfactuals(
             cf["changes_display"] = {display_names.get(k, _feature_name_for_expert(k)): v for k, v in cf["changes"].items()}
 
         # Gemini explanation for each scenario.
-        if get_ai_dice_scenario_explanations:
+        if get_ai_dice_scenario_explanations and DICE_ENABLE_GEMINI_EXPLANATIONS:
             scenario_payload = []
             for cf in counterfactuals:
                 # Always send cleaned display names to Gemini (no underscores).
