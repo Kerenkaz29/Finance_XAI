@@ -1,16 +1,16 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 
 const ExpertiseContext = createContext({
-  mode: 'non_expert',
+  mode: 'expert',
   setMode: () => {},
 })
 
 export function ExpertiseProvider({ children }) {
   const [mode, setModeState] = useState(() => {
     try {
-      return localStorage.getItem('xai_expertise_mode') || 'non_expert'
+      return localStorage.getItem('xai_expertise_mode') || 'expert'
     } catch {
-      return 'non_expert'
+      return 'expert'
     }
   })
   const setMode = useCallback((value) => {
