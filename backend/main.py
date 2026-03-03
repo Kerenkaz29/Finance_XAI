@@ -5,6 +5,9 @@ Run: python -m uvicorn main:app --reload --port 8000
 import os
 import traceback
 from typing import List, Optional, Literal
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import threading
 
 import numpy as np
 import pandas as pd
@@ -34,6 +37,7 @@ from config import BASE_DIR, BASE_URL
 
 _models_ready = False
 _download_progress = {"done": 0, "total": 0, "current": ""}
+_download_progress_lock = threading.Lock()
 
 # Hardcoded file IDs extracted from the shared Drive folder
 _DRIVE_FILES = {
@@ -77,17 +81,44 @@ _DRIVE_FILES = {
 }
 
 
-def _gdrive_download(file_id: str, dest: str):
-    """Download a single Google Drive file by ID using requests (no auth needed for shared files)."""
+def _set_download_progress(done: int, total: int, current: str):
+    global _download_progress
+    if _download_progress_lock is None:
+        _download_progress = {"done": done, "total": total, "current": current}
+        return
+    with _download_progress_lock:
+        _download_progress = {"done": done, "total": total, "current": current}
+
+
+def _gdrive_download(file_id: str, dest: str, max_retries: int = 3):
+    """Download a single Google Drive file by ID with retries and larger chunks."""
     import requests
     url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
-    with requests.Session() as s:
-        r = s.get(url, stream=True, timeout=60)
-        r.raise_for_status()
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                f.write(chunk)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    tmp_dest = dest + ".part"
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with requests.Session() as s:
+                # Longer read timeout helps large files; larger chunk improves throughput.
+                r = s.get(url, stream=True, timeout=(20, 300))
+                r.raise_for_status()
+                with open(tmp_dest, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=4 * 1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+            os.replace(tmp_dest, dest)
+            return
+        except Exception as e:
+            last_err = e
+            try:
+                if os.path.isfile(tmp_dest):
+                    os.remove(tmp_dest)
+            except Exception:
+                pass
+            if attempt < max_retries:
+                time.sleep(min(4 * attempt, 10))
+    raise RuntimeError(f"Failed to download {file_id} to {dest}: {last_err}")
 
 
 def _download_models_worker():
@@ -104,20 +135,41 @@ def _download_models_worker():
     print("[startup] Downloading model weights from Google Drive...")
     try:
         total = sum(len(v) for v in _DRIVE_FILES.values())
+        tasks = []
         done = 0
-        _download_progress = {"done": 0, "total": total, "current": ""}
+        _set_download_progress(done=0, total=total, current="Checking local model files...")
         for dataset, files in _DRIVE_FILES.items():
             for filename, file_id in files.items():
                 dest = os.path.join(output_dir, dataset, filename)
                 if os.path.isfile(dest):
                     done += 1
-                    _download_progress = {"done": done, "total": total, "current": f"{dataset}/{filename}"}
-                    continue
-                _download_progress = {"done": done, "total": total, "current": f"{dataset}/{filename}"}
-                print(f"[startup] ({done+1}/{total}) {dataset}/{filename} ...")
-                _gdrive_download(file_id, dest)
+                    _set_download_progress(done=done, total=total, current=f"{dataset}/{filename} (exists)")
+                else:
+                    tasks.append((dataset, filename, file_id, dest))
+
+        if not tasks:
+            print("[startup] All model files already present.")
+            _set_download_progress(done=total, total=total, current="Ready")
+            _models_ready = True
+            return
+
+        max_workers = int(os.environ.get("XAI_DOWNLOAD_WORKERS", "6"))
+        max_workers = max(1, min(max_workers, 12))
+        print(f"[startup] Downloading {len(tasks)} files with {max_workers} workers...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {}
+            for dataset, filename, file_id, dest in tasks:
+                current = f"{dataset}/{filename}"
+                print(f"[startup] queue {current}")
+                fut = executor.submit(_gdrive_download, file_id, dest)
+                future_map[fut] = current
+
+            for fut in as_completed(future_map):
+                current = future_map[fut]
+                fut.result()
                 done += 1
-                _download_progress = {"done": done, "total": total, "current": f"{dataset}/{filename}"}
+                _set_download_progress(done=done, total=total, current=current)
+                print(f"[startup] ({done}/{total}) done {current}")
         print("[startup] Download complete. Models are ready.")
     except Exception as e:
         print(f"[startup] ERROR: {e}")
@@ -143,7 +195,6 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 OUTPUTS_DIR = os.path.join(STATIC_DIR, "outputs")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
-import threading
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
