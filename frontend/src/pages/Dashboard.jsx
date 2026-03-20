@@ -356,7 +356,7 @@ export default function Dashboard() {
   const probabilityLabelsByDataset = {
     loan: ['Denied', 'Approved'],
     bankruptcy: ['Alive', 'Bankrupt'],
-    credit_risk: ['No default', 'Default'],
+    credit_risk: ['Lower Default Risk', 'Higher Default Risk'],
   }
   const [negativeLabel, positiveLabel] = probabilityLabelsByDataset[dataset] || ['Class 0', 'Class 1']
   const parsedFeatureCount = features
@@ -445,7 +445,14 @@ export default function Dashboard() {
   const loanRaw = loanDetails?.raw || {}
   const bankruptcyRaw = bankruptcyDetails?.raw || {}
   const creditRaw = creditDetails?.raw || {}
+  const rawPredictionLabel = String(prediction?.prediction_label || '')
   const predictionLabelLower = String(prediction?.prediction_label || '').toLowerCase()
+  const displayPredictionLabel = (() => {
+    if (dataset !== 'credit_risk') return rawPredictionLabel
+    if (predictionLabelLower.includes('no default')) return 'Lower Default Risk'
+    if (predictionLabelLower.includes('default')) return 'Higher Default Risk'
+    return rawPredictionLabel
+  })()
   const decisionStatusClass = (() => {
     if (dataset === 'loan') {
       return predictionLabelLower.includes('approved') ? 'text-emerald-600' : 'text-red-600'
@@ -525,7 +532,7 @@ export default function Dashboard() {
         return `${label} ${formatter(creditRaw[k])}`
       })
       .join(', ')
-    return `Credit record #${creditDetails?.index ?? creditIndex} was assessed using key credit-risk indicators${creditPreview ? `, including ${creditPreview}` : ''}.`
+    return `Credit record #${creditDetails?.index ?? creditIndex} reflects the following profile: ${creditPreview || 'key credit-risk details available'}.`
   })()
 
   return (
@@ -610,7 +617,7 @@ export default function Dashboard() {
                       <p className="mt-1 text-sm text-slate-700">
                         Status:{' '}
                         <span className={`font-bold ${decisionStatusClass}`}>
-                          {prediction.prediction_label}
+                          {displayPredictionLabel}
                         </span>
                       </p>
                       <p className="mt-1 text-sm text-slate-700">
@@ -637,7 +644,7 @@ export default function Dashboard() {
                       <p className="mt-1 text-sm text-slate-700">
                         Status:{' '}
                         <span className={`font-bold ${decisionStatusClass}`}>
-                          {prediction.prediction_label}
+                          {displayPredictionLabel}
                         </span>
                       </p>
                       <p className="mt-1 text-sm text-slate-700">
@@ -664,7 +671,7 @@ export default function Dashboard() {
                       <p className="mt-1 text-sm text-slate-700">
                         Status:{' '}
                         <span className={`font-bold ${decisionStatusClass}`}>
-                          {prediction.prediction_label}
+                          {displayPredictionLabel}
                         </span>
                       </p>
                       <p className="mt-1 text-sm text-slate-700">
