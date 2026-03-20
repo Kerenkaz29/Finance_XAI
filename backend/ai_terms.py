@@ -9,7 +9,7 @@ from typing import List, Dict, Any
 
 from config import GEMINI_API_KEY
 
-PROMPT_VERSION = "v7_stronger_technical_split"
+PROMPT_VERSION = "v8_expert_technical_precision"
 
 
 def _force_nonexpert_surface(label: str) -> str:
@@ -107,13 +107,16 @@ MODE = EXPERT
 Goal: technical analyst-style labels.
 Rules:
 1) Use finance/credit terminology where relevant.
-2) Prefer technical terms such as: ratio, exposure, leverage, coverage, liquidity, delinquency, utilization, turnover, solvency, risk.
+2) Prefer technical terms such as: ratio, exposure, leverage, coverage, liquidity, delinquency, utilization, turnover, solvency, risk, default propensity.
 3) Keep labels short: 2-5 words.
 4) Use noun-phrase labels (no full sentences).
 5) Use Title Case, no underscores.
 6) Do NOT use second-person wording ("you", "your").
 7) Do NOT simplify technical terms.
-8) Avoid generic words like "money", "things", "status".
+8) Avoid generic words like "money", "things", "status", "good/bad", "high/low" without metric context.
+9) Preserve quantitative semantics from the source feature:
+   - if source implies ratio/index/score/history, keep that measurement form in label.
+10) Prefer domain-specific risk wording over consumer wording.
 Good examples:
 - ApplicantIncome -> Applicant Income
 - Debt_ratio_percent -> Debt-to-Asset Ratio
@@ -151,10 +154,11 @@ Mode: {mode_name}
 
 Follow these rules strictly:
 {style_rules}
-Critical contrast rule:
-- EXPERT labels must read like analyst terminology.
+Critical quality rule:
+- EXPERT labels must read like analyst terminology used in model review.
 - NON_EXPERT labels must read like everyday language.
 - The two modes must be noticeably different in wording style.
+- Never output vague or conversational labels.
 
 Feature names (use these exact strings as JSON keys):
 {chr(10).join(feature_names)}
@@ -235,9 +239,10 @@ Rules:
 - Same number/order as input scenarios.
 - No markdown, no extra text.
     - Never return objects/dictionaries.
-- Each explanation should be 2-3 sentences.
-- Expert mode: include technical wording (risk drivers, model signal, feature sensitivity).
+- Each explanation should be exactly 3 concise sentences.
+- Expert mode: include technical wording (risk drivers, directional model signal, feature sensitivity, probability shift).
 - Non-expert mode: keep wording simple and practical.
+- Avoid generic filler and avoid repeating feature names without interpretation.
 """
 
     response = client.models.generate_content(

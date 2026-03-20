@@ -1,9 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { ExpertiseToggle } from '../components/ExpertiseToggle'
 import { SHAPChart } from '../components/SHAPChart'
 import { LIMEChart } from '../components/LIMEChart'
 import { DiCEPanel } from '../components/DiCEPanel'
-import { useExpertise } from '../context/ExpertiseContext'
 import { predict, getXAI, getDatasets, getLoanSample, getBankruptcySample, getCreditSample, getLoanSamples, getBankruptcySamples, getCreditSamples } from '../api/client'
 
 const DATASET_LABELS = {
@@ -29,7 +27,6 @@ function makeDemoVector(n) {
 }
 
 export default function Dashboard() {
-  const { mode } = useExpertise()
   const [dataset, setDataset] = useState('loan')
   const [method, setMethod] = useState('SHAP')
   const [features, setFeatures] = useState(DEMO_FEATURES.loan.join(', '))
@@ -120,13 +117,6 @@ export default function Dashboard() {
     }
   }, [dataset, apiReady])
 
-  // When switching Expert ↔ Non-Expert, clear results so the screen resets
-  useEffect(() => {
-    setPrediction(null)
-    setXaiData(null)
-    setError(null)
-  }, [mode])
-
   const runAnalyze = useCallback(async () => {
     setError(null)
     setLoading(true)
@@ -139,7 +129,7 @@ export default function Dashboard() {
       }
       const [predRes, xaiRes] = await Promise.all([
         predict({ dataset, features: f, model_type: 'rf' }),
-        getXAI({ dataset, features: f, expertise: mode, method, model_type: 'rf' }),
+        getXAI({ dataset, features: f, expertise: 'expert', method, model_type: 'rf' }),
       ])
       setPrediction(predRes)
       setXaiData({ ...xaiRes, _ts: Date.now() })
@@ -154,7 +144,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [dataset, features, mode, method, loanId])
+  }, [dataset, features, method, loanId])
 
   const runXAI = useCallback(async () => {
     setError(null)
@@ -168,7 +158,7 @@ export default function Dashboard() {
       const res = await getXAI({
         dataset,
         features: f,
-        expertise: mode,
+        expertise: 'expert',
         method,
         model_type: 'rf',
       })
@@ -181,9 +171,9 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [dataset, features, mode, method])
+  }, [dataset, features, method])
 
-  const isExpert = mode === 'expert'
+  const isExpert = true
   const probabilityLabelsByDataset = {
     loan: ['Denied', 'Approved'],
     bankruptcy: ['Alive', 'Bankrupt'],
@@ -209,7 +199,6 @@ export default function Dashboard() {
           <p className="mt-1 text-sm text-gray-500">
             Advanced AI Interpretability Tools for Economic Finance
           </p>
-          <ExpertiseToggle />
         </div>
       </header>
 

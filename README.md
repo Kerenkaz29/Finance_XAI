@@ -1,6 +1,6 @@
 # XAI Financial Services
 
-Research-based **Explainable AI (XAI)** system for financial decision-making, comparing how **experts** and **non-experts** accept AI explanations.
+Research-based **Explainable AI (XAI)** system for financial decision-making with SHAP, LIME, and DiCE explanations.
 
 ## Structure
 
@@ -8,7 +8,7 @@ Research-based **Explainable AI (XAI)** system for financial decision-making, co
 |--------|---------|------|
 | **training** | Train predictive models on 3 datasets | Python, PyTorch, Scikit-learn |
 | **backend** | API + XAI engine (SHAP, LIME, DiCE) | FastAPI, Firebase Admin SDK |
-| **frontend** | Dashboard (Expert / Non-Expert) + survey | React, Tailwind, Plotly |
+| **frontend** | Dashboard + survey | React, Tailwind, Plotly |
 
 ## Datasets
 
@@ -21,37 +21,45 @@ Place CSVs in a folder and set:
 - **Training:** `XAI_DATA_DIR` (default: `../datasets` relative to project root), or edit `training/config.py`.
 - **Backend:** `XAI_TRAINING_OUTPUT` to the path of `training/output` (or leave default `../training/output`).
 
-## Quick start
+## Quick Start (Windows / PowerShell)
 
-### 1. Training
+### 1. Training (optional if models already exist)
 
-```bash
-cd training
-pip install -r requirements.txt
+```powershell
+cd "C:\Users\97254\Desktop\Finance_XAI\training"
+py -m pip install -r requirements.txt
 # Set XAI_DATA_DIR if needed, e.g. C:\Users\97254\Desktop\datasets
-python preprocess_loan.py
-python preprocess_bankruptcy.py
-python preprocess_credit_risk.py   # after extracting GiveMeSomeCredit.zip
-python train_models.py
+py preprocess_loan.py
+py preprocess_bankruptcy.py
+py preprocess_credit_risk.py
+py train_models.py
 ```
 
 ### 2. Backend
 
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+```powershell
+cd "C:\Users\97254\Desktop\Finance_XAI\backend"
+py -m venv venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\venv\Scripts\Activate.ps1
+py -m pip install --upgrade pip
+py -m pip install -r requirements.txt
+py -m uvicorn main:app --reload --port 8000
 ```
 
 ### 3. Frontend
 
-```bash
-cd frontend
+```powershell
+cd "C:\Users\97254\Desktop\Finance_XAI\frontend"
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Use the **Expert / Non-Expert** toggle and run predictions and XAI (SHAP, LIME, DiCE). Complete the **Survey** (S-TIAS, SCS) from the nav.
+Open `http://localhost:5173` and run predictions + XAI (SHAP, LIME, DiCE).
+
+Notes:
+- The frontend currently runs in **expert-style explanation mode** by default (no expert/non-expert tab toggle in the UI).
+- Backend health endpoint: `http://127.0.0.1:8000/health`
 
 ## Reference
 
