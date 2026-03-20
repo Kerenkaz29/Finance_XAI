@@ -356,7 +356,7 @@ export default function Dashboard() {
   const probabilityLabelsByDataset = {
     loan: ['Denied', 'Approved'],
     bankruptcy: ['Alive', 'Bankrupt'],
-    credit_risk: ['Lower Default Risk', 'Higher Default Risk'],
+    credit_risk: ['Lower Payment Risk', 'Higher Payment Risk'],
   }
   const [negativeLabel, positiveLabel] = probabilityLabelsByDataset[dataset] || ['Class 0', 'Class 1']
   const parsedFeatureCount = features
@@ -449,8 +449,8 @@ export default function Dashboard() {
   const predictionLabelLower = String(prediction?.prediction_label || '').toLowerCase()
   const displayPredictionLabel = (() => {
     if (dataset !== 'credit_risk') return rawPredictionLabel
-    if (predictionLabelLower.includes('no default')) return 'Lower Default Risk'
-    if (predictionLabelLower.includes('default')) return 'Higher Default Risk'
+    if (predictionLabelLower.includes('no default')) return 'Lower Payment Risk'
+    if (predictionLabelLower.includes('default')) return 'Higher Payment Risk'
     return rawPredictionLabel
   })()
   const decisionStatusClass = (() => {
@@ -534,6 +534,29 @@ export default function Dashboard() {
       .join(', ')
     return `Credit record #${creditDetails?.index ?? creditIndex} reflects the following profile: ${creditPreview || 'key credit-risk details available'}.`
   })()
+  const datasetContextByDataset = {
+    loan: [
+      'This loan approval dataset contains 614 application records.',
+      'Each row is one applicant profile with fields such as income, credit history, loan amount, and repayment term.',
+      'The table combines personal attributes (for example education and marital status) with financial loan-request fields.',
+      'Data is stored as a tabular borrower-level dataset where one row = one loan case.',
+    ],
+    bankruptcy: [
+      'This corporate bankruptcy dataset contains 6,819 company records.',
+      'Each row represents one company profile derived from financial statements.',
+      'Most columns are financial ratios (profitability, leverage, liquidity, and operating efficiency).',
+      'The dataset is structured as a company-level table with numeric financial indicators per row.',
+      'It captures historical accounting signals used to describe corporate financial condition.',
+    ],
+    credit_risk: [
+      'This credit-risk dataset (cs-training) contains about 150,000 borrower records.',
+      'Each row is one consumer credit profile captured at a specific snapshot in time.',
+      'Columns include debt ratio, utilization, number of credit lines, and past-due/delinquency behavior.',
+      'It is a large borrower-level tabular database focused on repayment-behavior variables.',
+      'The dataset mixes balance-sheet style credit fields with payment-history signals.',
+    ],
+  }
+  const datasetContext = datasetContextByDataset[dataset] || []
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50/60 via-cyan-50/20 to-white">
@@ -685,6 +708,16 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+            {datasetContext.length > 0 && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Dataset context</p>
+                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
+                  {datasetContext.map((line, idx) => (
+                    <li key={`dataset-context-${dataset}-${idx}`}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </section>
         )}
 
