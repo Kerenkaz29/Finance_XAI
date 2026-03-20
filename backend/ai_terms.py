@@ -216,7 +216,7 @@ def get_ai_dice_scenario_explanations(
 
     is_expert = (expertise == "expert")
     tone = (
-        "technical and analytical for financial analysts"
+        "semi-technical and practical for experienced financial analysts (clear, not overly academic)"
         if is_expert
         else "plain language for non-experts"
     )
@@ -240,7 +240,9 @@ Rules:
 - No markdown, no extra text.
     - Never return objects/dictionaries.
 - Each explanation should be exactly 3 concise sentences.
-- Expert mode: include technical wording (risk drivers, directional model signal, feature sensitivity, probability shift).
+- Expert mode: use analyst-level language but keep it practical and easy to scan.
+- Expert mode: prefer common credit-risk terms (risk level, repayment capacity, leverage pressure, cash-flow pressure) over academic jargon.
+- Expert mode: if a technical term is used, clarify it briefly in plain words in the same sentence.
 - Non-expert mode: keep wording simple and practical.
 - Avoid generic filler and avoid repeating feature names without interpretation.
 """

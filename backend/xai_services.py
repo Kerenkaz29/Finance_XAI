@@ -37,7 +37,9 @@ except ImportError:
 
 # DiCE speed controls (fast by default, Gemini explanations enabled)
 DICE_FAST_MODE = os.environ.get("XAI_DICE_FAST_MODE", "1").strip().lower() in ("1", "true", "yes", "on")
-DICE_DEFAULT_NUM_CF = int(os.environ.get("XAI_DICE_NUM_CF", "1"))
+DICE_DEFAULT_NUM_CF = int(os.environ.get("XAI_DICE_NUM_CF", "3"))
+DICE_DIVERSITY_FACTOR = max(1, int(os.environ.get("XAI_DICE_DIVERSITY_FACTOR", "4")))
+DICE_MAX_CHANGES_PER_SCENARIO = max(1, int(os.environ.get("XAI_DICE_MAX_CHANGES", "3")))
 DICE_ENABLE_GEMINI_EXPLANATIONS = os.environ.get("XAI_DICE_GEMINI", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -332,14 +334,15 @@ def get_dice_counterfactuals(
         backend = dice_ml.Model(model=backend_model, backend="sklearn")
         exp = dice_ml.Dice(d, backend, method="random" if DICE_FAST_MODE else "genetic")
         # Generate counterfactuals
+        requested_total_cfs = max(num_cf, num_cf * DICE_DIVERSITY_FACTOR)
         dice_exp = exp.generate_counterfactuals(
             X_instance_df,
-            total_CFs=num_cf,
+            total_CFs=requested_total_cfs,
             desired_class="opposite",
         )
         cf_list = dice_exp.cf_examples_list
         if not cf_list or len(cf_list) == 0 or cf_list[0] is None:
-            return {"method": "DiCE", "expertise": expertise, "counterfactuals": [], "description": "No counterfactuals generated."}
+            return {"method": "DiCE", "expertise": expertise, "dataset": dataset, "counterfactuals": [], "description": "No counterfactuals generated."}
         cfs = cf_list[0]
         if hasattr(cfs, "final_cfs_df"):
             cf_df = cfs.final_cfs_df
@@ -360,17 +363,77 @@ def get_dice_counterfactuals(
         except Exception:
             cf_target_probs = None
 
-        counterfactuals = []
-        for i in range(min(num_cf, len(cf_df))):
+        # Build candidate CF changes first, then pick diverse scenarios and limit per-scenario variables.
+        candidate_cfs = []
+        for i in range(len(cf_df)):
             row = cf_df.iloc[i]
-            changes = {}
+            changes_full = {}
             for c in feature_names:
                 if c in row.index and c in instance_vals.index:
                     ov = float(instance_vals[c])
                     nv = float(row[c])
                     if abs(ov - nv) > 1e-6:
-                        changes[c] = {"from": round(ov, 4), "to": round(nv, 4)}
-            cf_item = {"changes": changes}
+                        changes_full[c] = {"from": round(ov, 4), "to": round(nv, 4)}
+            if changes_full:
+                candidate_cfs.append({"idx": i, "changes_full": changes_full})
+
+        selected_candidates = []
+        remaining = candidate_cfs.copy()
+        used_features = set()
+        # Greedy diverse pick across scenarios.
+        while remaining and len(selected_candidates) < num_cf:
+            best_j = 0
+            best_score = None
+            for j, cand in enumerate(remaining):
+                feats = set(cand["changes_full"].keys())
+                new_feats = len(feats - used_features)
+                magnitude = sum(abs(v["to"] - v["from"]) for v in cand["changes_full"].values())
+                score = (new_feats, magnitude, len(feats))
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_j = j
+            best = remaining.pop(best_j)
+            selected_candidates.append(best)
+            used_features.update(best["changes_full"].keys())
+
+        if len(selected_candidates) < num_cf:
+            for cand in candidate_cfs:
+                if cand not in selected_candidates:
+                    selected_candidates.append(cand)
+                if len(selected_candidates) >= num_cf:
+                    break
+
+        selected_candidates = selected_candidates[:num_cf]
+        used_features_limited = set()
+        counterfactuals = []
+        for cand in selected_candidates:
+            changes_full = cand["changes_full"]
+            # Keep strongest changes first.
+            ranked = sorted(
+                changes_full.items(),
+                key=lambda kv: abs(kv[1]["to"] - kv[1]["from"]),
+                reverse=True,
+            )
+            chosen = []
+            # Prefer variables not shown in previous scenarios.
+            for name, delta in ranked:
+                if name not in used_features_limited:
+                    chosen.append((name, delta))
+                if len(chosen) >= DICE_MAX_CHANGES_PER_SCENARIO:
+                    break
+            # Fill remaining slots from strongest remaining variables.
+            if len(chosen) < DICE_MAX_CHANGES_PER_SCENARIO:
+                for name, delta in ranked:
+                    if any(name == n for n, _ in chosen):
+                        continue
+                    chosen.append((name, delta))
+                    if len(chosen) >= DICE_MAX_CHANGES_PER_SCENARIO:
+                        break
+            limited_changes = {name: delta for name, delta in chosen}
+            used_features_limited.update(limited_changes.keys())
+
+            cf_item = {"changes": limited_changes}
+            i = cand["idx"]
             if cf_target_probs is not None and i < len(cf_target_probs):
                 cf_item["target_probability"] = float(cf_target_probs[i])
             counterfactuals.append(cf_item)
@@ -420,6 +483,7 @@ def get_dice_counterfactuals(
         return {
             "method": "DiCE",
             "expertise": expertise,
+            "dataset": dataset,
             "counterfactuals": counterfactuals,
             "scenario_summaries": scenario_summaries,
             "current_probability": current_prob,

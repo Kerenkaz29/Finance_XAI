@@ -586,6 +586,7 @@ export default function Dashboard() {
                 value={dataset}
                 onChange={(e) => setDataset(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                style={{ fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: '0', wordSpacing: '0' }}
               >
                 {Object.entries(DATASET_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
@@ -598,6 +599,7 @@ export default function Dashboard() {
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                style={{ fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: '0', wordSpacing: '0' }}
               >
                 {METHOD_OPTIONS.map((m) => (
                   <option key={m} value={m}>{m}</option>
@@ -643,10 +645,6 @@ export default function Dashboard() {
                           {displayPredictionLabel}
                         </span>
                       </p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        Probability{' '}
-                        <span className="font-semibold text-slate-900">{predictionPct}%</span>
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -670,10 +668,6 @@ export default function Dashboard() {
                           {displayPredictionLabel}
                         </span>
                       </p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        Probability{' '}
-                        <span className="font-semibold text-slate-900">{predictionPct}%</span>
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -695,12 +689,6 @@ export default function Dashboard() {
                         Status:{' '}
                         <span className={`font-bold ${decisionStatusClass}`}>
                           {displayPredictionLabel}
-                        </span>
-                      </p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        Probability{' '}
-                        <span className="font-semibold text-slate-900">
-                          {predictionPct}%
                         </span>
                       </p>
                     </div>
