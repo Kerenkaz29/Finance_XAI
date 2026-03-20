@@ -2,7 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
   @apply bg-white text-gray-900 antialiased;
+}
+
+.font-display {
+  font-family: 'Sora', 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
 }

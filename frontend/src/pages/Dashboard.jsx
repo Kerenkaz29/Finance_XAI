@@ -57,39 +57,49 @@ export default function Dashboard() {
 
   // When dataset changes: load list of samples and auto-load first sample (cvision-style so data is visible)
   useEffect(() => {
+    let active = true
+    const targetDataset = dataset
+
     setFeatures(DEMO_FEATURES[dataset].join(', '))
     setPrediction(null)
     setXaiData(null)
     setError(null)
-    if (!apiReady) return
+    if (!apiReady) return () => { active = false }
     if (dataset === 'loan') {
       getLoanSamples(30)
         .then((data) => {
+          if (!active || targetDataset !== 'loan') return null
           const ids = data.loan_ids || []
           if (ids.length) {
             setLoanId(ids[0])
             return getLoanSample(ids[0])
           }
+          return null
         })
         .then((sample) => {
+          if (!active || targetDataset !== 'loan') return
           if (sample?.features?.length) {
             setFeatures(sample.features.join(', '))
             setLoanDetails({ loan_id: sample.loan_id, loan_status: sample.loan_status })
           }
         })
         .catch(() => {
+          if (!active || targetDataset !== 'loan') return
           setFeatures(DEMO_FEATURES.loan.join(', '))
         })
     } else if (dataset === 'bankruptcy') {
       getBankruptcySamples(30)
         .then((data) => {
+          if (!active || targetDataset !== 'bankruptcy') return null
           const names = data.company_names || []
           if (names.length) {
             setCompanyName(names[0])
             return getBankruptcySample(names[0])
           }
+          return null
         })
         .then((sample) => {
+          if (!active || targetDataset !== 'bankruptcy') return
           if (sample?.features?.length) {
             setFeatures(sample.features.join(', '))
           } else {
@@ -97,23 +107,31 @@ export default function Dashboard() {
           }
         })
         .catch(() => {
+          if (!active || targetDataset !== 'bankruptcy') return
           setFeatures(DEMO_FEATURES.bankruptcy.join(', '))
         })
     } else if (dataset === 'credit_risk') {
       getCreditSamples(30)
         .then((data) => {
+          if (!active || targetDataset !== 'credit_risk') return null
           const indices = data.indices || []
           if (indices.length) {
             setCreditIndex(indices[0])
             return getCreditSample(indices[0])
           }
+          return null
         })
         .then((sample) => {
+          if (!active || targetDataset !== 'credit_risk') return
           if (sample?.features?.length) setFeatures(sample.features.join(', '))
         })
         .catch(() => {
+          if (!active || targetDataset !== 'credit_risk') return
           setFeatures(DEMO_FEATURES.credit_risk.join(', '))
         })
+    }
+    return () => {
+      active = false
     }
   }, [dataset, apiReady])
 
@@ -126,6 +144,11 @@ export default function Dashboard() {
       const f = features.split(/[\s,]+/).map((s) => parseFloat(s.trim())).filter((n) => !Number.isNaN(n))
       if (!f.length) {
         throw new Error('Load a sample from the dataset first.')
+      }
+      const expected = featureCounts?.[dataset]
+      if (Number.isFinite(expected) && f.length !== expected) {
+        setFeatures(DEMO_FEATURES[dataset].join(', '))
+        throw new Error(`Wrong feature count: this model expects ${expected} features but you sent ${f.length}.`)
       }
       const [predRes, xaiRes] = await Promise.all([
         predict({ dataset, features: f, model_type: 'rf' }),
@@ -144,7 +167,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [dataset, features, method, loanId])
+  }, [dataset, features, method, loanId, featureCounts])
 
   const runXAI = useCallback(async () => {
     setError(null)
@@ -154,6 +177,11 @@ export default function Dashboard() {
       const f = features.split(/[\s,]+/).map((s) => parseFloat(s.trim())).filter((n) => !Number.isNaN(n))
       if (!f.length) {
         throw new Error('Load a sample from the dataset first.')
+      }
+      const expected = featureCounts?.[dataset]
+      if (Number.isFinite(expected) && f.length !== expected) {
+        setFeatures(DEMO_FEATURES[dataset].join(', '))
+        throw new Error(`Wrong feature count: this model expects ${expected} features but you sent ${f.length}.`)
       }
       const res = await getXAI({
         dataset,
@@ -171,7 +199,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [dataset, features, method])
+  }, [dataset, features, method, featureCounts])
 
   const isExpert = true
   const probabilityLabelsByDataset = {
@@ -190,35 +218,33 @@ export default function Dashboard() {
     : 'User-friendly explanations of AI predictions. Choose your prediction type and explanation style to understand how decisions are made.'
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-4">
-          <h1 className="text-2xl font-bold text-slate-900">
+    <div className="min-h-screen bg-gradient-to-b from-emerald-50/60 via-cyan-50/20 to-white">
+      <header className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 shadow-sm">
+        <div className="mx-auto max-w-6xl px-4 py-5">
+          <h1 className="font-display text-3xl font-extrabold tracking-tight text-white drop-shadow-sm md:text-4xl">
             Financial Model Explainability Platform
           </h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-emerald-50/95">
             Advanced AI Interpretability Tools for Economic Finance
           </p>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-1 text-lg font-semibold text-slate-900">
-            {isExpert ? 'Expert Analysis Dashboard' : 'Simplified Analysis Interface'}
+      <main className="mx-auto max-w-6xl px-4 py-8">
+        <section className="mb-6 rounded-2xl border-2 border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-100">
+          <h2 className="font-display mb-1 text-lg font-semibold text-slate-900 md:text-xl">
+            {title}
           </h2>
           <p className="mb-4 text-sm text-slate-600">
-            {isExpert
-              ? 'Advanced model interpretation tools for financial professionals. Select your prediction model and explainability method to generate detailed technical insights.'
-              : 'User-friendly explanations of AI predictions. Choose your prediction type and explanation style to understand how decisions are made.'}
+            {subtitle}
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Prediction Model</label>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Prediction Model</label>
               <select
                 value={dataset}
                 onChange={(e) => setDataset(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               >
                 {Object.entries(DATASET_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
@@ -226,11 +252,11 @@ export default function Dashboard() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Explainability Method</label>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Explainability Method</label>
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
               >
                 {METHOD_OPTIONS.map((m) => (
                   <option key={m} value={m}>{m}</option>
@@ -243,17 +269,17 @@ export default function Dashboard() {
               type="button"
               onClick={runAnalyze}
               disabled={loading}
-              className="rounded-lg bg-primary-700 px-4 py-2 text-sm font-medium text-white hover:bg-primary-800 disabled:opacity-50"
+              className="rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50"
             >
-              {loading ? 'Analyzing...' : 'Analyze'}
+              {loading ? 'Analyzing...' : 'Run Analysis'}
             </button>
           </div>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </section>
 
         {prediction && (
-          <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">
+          <section className="mb-6 rounded-2xl border-2 border-emerald-200/80 bg-gradient-to-r from-emerald-50/40 to-cyan-50/30 p-6 shadow-sm ring-1 ring-emerald-100/80">
+            <h2 className="font-display mb-4 text-lg font-bold text-slate-900 md:text-xl">
               {dataset === 'loan' ? 'Loan Details' : dataset === 'credit_risk' ? 'Credit Details' : 'Company Details'}
             </h2>
             <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1">
@@ -279,8 +305,8 @@ export default function Dashboard() {
           </section>
         )}
 
-        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-1 text-lg font-bold text-slate-900">
+        <section className="rounded-2xl border-2 border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-100">
+          <h2 className="font-display mb-1 text-lg font-bold text-slate-900 md:text-xl">
             {method === 'SHAP' ? 'SHAP Analysis' : method === 'LIME' ? 'LIME Analysis' : method === 'DiCE' ? 'DiCE Counterfactuals' : 'Explanation'}
           </h2>
           <p className="mb-4 text-sm text-gray-600">
@@ -297,8 +323,8 @@ export default function Dashboard() {
           {method === 'SHAP' && (
             <>
               {xaiData?.image_url ? (
-                <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                  <h3 className="mb-3 text-sm font-semibold text-gray-700">
+                <div className="rounded-lg border-2 border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                  <h3 className="font-display mb-3 text-sm font-semibold text-gray-700">
                     {isExpert ? 'Global Feature Importance - Loan Approval Model (Expert View)' : 'What most affected the loan decision (Non-Expert View)'}
                   </h3>
                   <img
@@ -315,8 +341,8 @@ export default function Dashboard() {
           {method === 'LIME' && (
             <>
               {xaiData?.image_url ? (
-                <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                  <h3 className="mb-3 text-sm font-semibold text-gray-700">
+                <div className="rounded-lg border-2 border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                  <h3 className="font-display mb-3 text-sm font-semibold text-gray-700">
                     {isExpert ? 'LIME local explanation (Expert View)' : 'Local explanation (Non-Expert View)'}
                   </h3>
                   <img
@@ -326,7 +352,7 @@ export default function Dashboard() {
                   />
                   {prediction && positiveProbability != null && (
                     <div className="mt-5 border-t border-gray-200 pt-4">
-                      <div className="mx-auto w-full max-w-xl rounded-2xl border border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white p-6 shadow-sm">
+                      <div className="mx-auto w-full max-w-xl rounded-2xl border-2 border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white p-6 shadow-sm ring-1 ring-slate-100">
                         <div>
                           <div>
                             <h3 className="text-base font-semibold tracking-wide text-slate-800">Class probabilities</h3>
@@ -374,7 +400,7 @@ export default function Dashboard() {
           )}
           {method === 'DiCE' && <DiCEPanel data={xaiData} />}
           {!xaiData && !loading && (
-            <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-sm text-gray-500">
+            <p className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm text-gray-500">
               Choose options above and run analysis to see the chart.
             </p>
           )}
