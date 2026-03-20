@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { SHAPChart } from '../components/SHAPChart'
 import { LIMEChart } from '../components/LIMEChart'
 import { DiCEPanel } from '../components/DiCEPanel'
@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [creditIndex, setCreditIndex] = useState(0)
   const [creditDetails, setCreditDetails] = useState(null)
   const [apiReady, setApiReady] = useState(false)
+  const selectedSampleRef = useRef({ loan: null, bankruptcy: null, credit_risk: null })
   const hasValue = (v) => v !== null && v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))
   const isPositiveNumber = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
   const hasValidLoanStoryData = (sample) => {
@@ -49,6 +50,7 @@ export default function Dashboard() {
     return Boolean(sample?.loan_id)
       && isPositiveNumber(Number(raw.ApplicantIncome))
       && isPositiveNumber(Number(raw.CoapplicantIncome))
+      && isPositiveNumber(Number(raw.LoanAmount))
       && hasValue(raw.Loan_Amount_Term)
       && hasValue(raw.Credit_History)
   }
@@ -102,16 +104,29 @@ export default function Dashboard() {
           const ids = data.loan_ids || []
           if (!ids.length) return null
           let fallbackSample = null
+          const validSamples = []
           for (const id of ids) {
             try {
               const sample = await getLoanSample(id)
               if (!fallbackSample) fallbackSample = sample
               if (hasValidLoanStoryData(sample)) {
-                return sample
+                validSamples.push(sample)
               }
             } catch {
               // Try next sample ID.
             }
+          }
+          if (validSamples.length) {
+            const savedId = selectedSampleRef.current.loan
+            const savedSample = savedId
+              ? validSamples.find((s) => s?.loan_id === savedId)
+              : null
+            const chosen = savedSample || validSamples[Math.floor(Math.random() * validSamples.length)]
+            selectedSampleRef.current.loan = chosen?.loan_id || null
+            return chosen
+          }
+          if (fallbackSample?.loan_id) {
+            selectedSampleRef.current.loan = fallbackSample.loan_id
           }
           return fallbackSample
         })
@@ -138,16 +153,29 @@ export default function Dashboard() {
           const names = data.company_names || []
           if (!names.length) return null
           let fallbackSample = null
+          const validSamples = []
           for (const name of names) {
             try {
               const sample = await getBankruptcySample(name)
               if (!fallbackSample) fallbackSample = sample
               if (hasValidBankruptcyStoryData(sample)) {
-                return sample
+                validSamples.push(sample)
               }
             } catch {
               // Try next company.
             }
+          }
+          if (validSamples.length) {
+            const savedName = selectedSampleRef.current.bankruptcy
+            const savedSample = savedName
+              ? validSamples.find((s) => s?.company_name === savedName)
+              : null
+            const chosen = savedSample || validSamples[Math.floor(Math.random() * validSamples.length)]
+            selectedSampleRef.current.bankruptcy = chosen?.company_name || null
+            return chosen
+          }
+          if (fallbackSample?.company_name) {
+            selectedSampleRef.current.bankruptcy = fallbackSample.company_name
           }
           return fallbackSample
         })
@@ -178,16 +206,31 @@ export default function Dashboard() {
           const indices = data.indices || []
           if (!indices.length) return null
           let fallbackSample = null
+          const validSamples = []
           for (const idx of indices) {
             try {
               const sample = await getCreditSample(idx)
               if (!fallbackSample) fallbackSample = sample
               if (hasValidCreditStoryData(sample)) {
-                return sample
+                validSamples.push(sample)
               }
             } catch {
               // Try next credit row.
             }
+          }
+          if (validSamples.length) {
+            const savedIndex = selectedSampleRef.current.credit_risk
+            const savedSample = Number.isInteger(savedIndex)
+              ? validSamples.find((s) => Number(s?.index) === savedIndex)
+              : null
+            const chosen = savedSample || validSamples[Math.floor(Math.random() * validSamples.length)]
+            selectedSampleRef.current.credit_risk = Number.isFinite(Number(chosen?.index))
+              ? Number(chosen.index)
+              : null
+            return chosen
+          }
+          if (Number.isFinite(Number(fallbackSample?.index))) {
+            selectedSampleRef.current.credit_risk = Number(fallbackSample.index)
           }
           return fallbackSample
         })
@@ -309,6 +352,62 @@ export default function Dashboard() {
     }
     return String(value)
   }
+  const formatUSD = (value) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return 'N/A'
+    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+  }
+  const formatLoanAmountUSD = (value) => {
+    const n = Number(value)
+    if (!Number.isFinite(n) || n <= 0) return 'N/A'
+    return `$${Math.round(n * 1000).toLocaleString()}`
+  }
+  const formatCount = (value) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return 'N/A'
+    return Math.round(n).toLocaleString()
+  }
+  const formatRatioAsPercent = (value) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return 'N/A'
+    return `${(n * 100).toFixed(1)}%`
+  }
+  const formatBankruptcyMetricLabel = (rawName) => {
+    const key = String(rawName || '').trim()
+    const map = {
+      'ROA(C) before interest and depreciation before interest': 'Operating return on assets',
+      'ROA(A) before interest and % after tax': 'After-tax return on assets',
+      'Debt ratio %': 'Debt ratio',
+      'Net worth/Assets': 'Net worth to assets',
+      'Working Capital/Total Assets': 'Working capital to total assets',
+      'Total Asset Turnover': 'Asset turnover',
+      'Current Ratio': 'Current ratio',
+      'Cash Flow/Total Assets': 'Cash flow to total assets',
+      'Interest Coverage Ratio': 'Interest coverage ratio',
+      'Borrowing dependency': 'Borrowing dependency',
+      'Retained Earnings/Total Assets': 'Retained earnings to total assets',
+    }
+    return map[key] || key.replace(/_/g, ' ')
+  }
+  const formatBankruptcyMetricValue = (rawName, value) => {
+    const key = String(rawName || '').trim()
+    const percentLike = new Set([
+      'ROA(C) before interest and depreciation before interest',
+      'ROA(A) before interest and % after tax',
+      'Debt ratio %',
+      'Net worth/Assets',
+      'Working Capital/Total Assets',
+      'Cash Flow/Total Assets',
+      'Retained Earnings/Total Assets',
+      'Borrowing dependency',
+    ])
+    if (percentLike.has(key)) return formatRatioAsPercent(value)
+    if (key === 'Total Asset Turnover' || key === 'Current Ratio' || key === 'Interest Coverage Ratio') {
+      const n = Number(value)
+      return Number.isFinite(n) ? `${n.toFixed(2)}x` : 'N/A'
+    }
+    return formatValue(value)
+  }
   const predictionPct = positiveProbability == null ? null : (positiveProbability * 100).toFixed(1)
   const loanRaw = loanDetails?.raw || {}
   const bankruptcyRaw = bankruptcyDetails?.raw || {}
@@ -316,26 +415,71 @@ export default function Dashboard() {
   const decisionStory = (() => {
     if (!prediction || predictionPct == null) return null
     if (dataset === 'loan') {
-      const applicantIncome = loanRaw.ApplicantIncome != null ? formatValue(loanRaw.ApplicantIncome) : 'N/A'
-      const coapplicantIncome = loanRaw.CoapplicantIncome != null ? formatValue(loanRaw.CoapplicantIncome) : 'N/A'
-      const loanTerm = loanRaw.Loan_Amount_Term != null ? formatValue(loanRaw.Loan_Amount_Term) : 'N/A'
-      const creditHistory = loanRaw.Credit_History != null ? formatValue(loanRaw.Credit_History) : 'N/A'
-      return `Loan ID ${loanDetails?.loan_id || loanId} shows applicant income ${applicantIncome}, coapplicant income ${coapplicantIncome}, loan term ${loanTerm}, and credit history ${creditHistory}. The model concluded "${prediction.prediction_label}" with confidence ${predictionPct}%.`
+      const applicantIncome = loanRaw.ApplicantIncome != null ? formatUSD(loanRaw.ApplicantIncome) : 'N/A'
+      const coapplicantIncome = loanRaw.CoapplicantIncome != null ? formatUSD(loanRaw.CoapplicantIncome) : 'N/A'
+      const householdIncomeNum = Number(loanRaw.ApplicantIncome || 0) + Number(loanRaw.CoapplicantIncome || 0)
+      const householdIncome = householdIncomeNum > 0 ? formatUSD(householdIncomeNum) : 'N/A'
+      const loanAmount = loanRaw.LoanAmount != null ? formatLoanAmountUSD(loanRaw.LoanAmount) : 'N/A'
+      const loanTerm = loanRaw.Loan_Amount_Term != null ? `${formatCount(loanRaw.Loan_Amount_Term)} months` : 'N/A'
+      const creditHistoryNum = Number(loanRaw.Credit_History)
+      const creditHistory = Number.isFinite(creditHistoryNum)
+        ? (creditHistoryNum >= 1 ? 'positive (1)' : 'limited (0)')
+        : 'N/A'
+      return `Loan ID ${loanDetails?.loan_id || loanId} has applicant income ${applicantIncome}, coapplicant income ${coapplicantIncome} (total ${householdIncome}), requested loan amount ${loanAmount}, and a ${loanTerm} term.`
     }
     if (dataset === 'bankruptcy') {
       const company = bankruptcyDetails?.company_name || companyName
       const yearPart = bankruptcyDetails?.year != null ? ` in year ${bankruptcyDetails.year}` : ''
+      const preferredOrder = [
+        'ROA(C) before interest and depreciation before interest',
+        'ROA(A) before interest and % after tax',
+        'Debt ratio %',
+        'Current Ratio',
+        'Interest Coverage Ratio',
+        'Cash Flow/Total Assets',
+        'Net worth/Assets',
+        'Working Capital/Total Assets',
+        'Total Asset Turnover',
+        'Borrowing dependency',
+        'Retained Earnings/Total Assets',
+      ]
+      const metricOrderIndex = new Map(preferredOrder.map((k, i) => [k, i]))
       const metricPreview = Object.entries(bankruptcyRaw)
         .filter(([k, v]) => !['company_name', 'year', 'status_label', 'Bankrupt?'].includes(k) && typeof v === 'number' && Number.isFinite(v))
-        .slice(0, 2)
-        .map(([k, v]) => `${k.replace(/_/g, ' ')} ${formatValue(v)}`)
+        .sort(([a], [b]) => {
+          const ai = metricOrderIndex.has(a) ? metricOrderIndex.get(a) : Number.MAX_SAFE_INTEGER
+          const bi = metricOrderIndex.has(b) ? metricOrderIndex.get(b) : Number.MAX_SAFE_INTEGER
+          if (ai !== bi) return ai - bi
+          return a.localeCompare(b)
+        })
+        .slice(0, 4)
+        .map(([k, v]) => `${formatBankruptcyMetricLabel(k)} ${formatBankruptcyMetricValue(k, v)}`)
         .join(', ')
-      return `Company ${company}${yearPart} was assessed using financial indicators${metricPreview ? ` including ${metricPreview}` : ''}. The model decision is "${prediction.prediction_label}" with confidence ${predictionPct}%.`
+      return `Company ${company}${yearPart} was assessed using key bankruptcy indicators${metricPreview ? `, including ${metricPreview}` : ''}.`
     }
-    const age = hasValue(creditRaw.age) ? formatValue(creditRaw.age) : 'N/A'
-    const income = hasValue(creditRaw.MonthlyIncome) ? formatValue(creditRaw.MonthlyIncome) : 'N/A'
-    const openLines = hasValue(creditRaw.NumberOfOpenCreditLinesAndLoans) ? formatValue(creditRaw.NumberOfOpenCreditLinesAndLoans) : 'N/A'
-    return `Credit record #${creditDetails?.index ?? creditIndex} shows age ${age}, monthly income ${income}, and open credit lines ${openLines}. The model predicts "${prediction.prediction_label}" with confidence ${predictionPct}%.`
+    const importantCreditFields = [
+      ['age', (v) => `${formatCount(v)} years`],
+      ['MonthlyIncome', (v) => `${formatUSD(v)} per month`],
+      ['DebtRatio', (v) => formatRatioAsPercent(v)],
+      ['RevolvingUtilizationOfUnsecuredLines', (v) => formatRatioAsPercent(v)],
+      ['NumberOfTime30-59DaysPastDueNotWorse', (v) => `${formatCount(v)} times`],
+      ['NumberOfOpenCreditLinesAndLoans', (v) => `${formatCount(v)} lines`],
+    ]
+    const creditPreview = importantCreditFields
+      .filter(([k]) => hasValue(creditRaw[k]))
+      .slice(0, 4)
+      .map(([k, formatter]) => {
+        const label = k
+          .replace('MonthlyIncome', 'monthly income')
+          .replace('DebtRatio', 'debt ratio')
+          .replace('RevolvingUtilizationOfUnsecuredLines', 'revolving utilization')
+          .replace('NumberOfTime30-59DaysPastDueNotWorse', '30-59 days past due')
+          .replace('NumberOfOpenCreditLinesAndLoans', 'open credit lines')
+          .replace('age', 'age')
+        return `${label} ${formatter(creditRaw[k])}`
+      })
+      .join(', ')
+    return `Credit record #${creditDetails?.index ?? creditIndex} was assessed using key credit-risk indicators${creditPreview ? `, including ${creditPreview}` : ''}.`
   })()
 
   return (
@@ -406,7 +550,7 @@ export default function Dashboard() {
             <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1">
               {dataset === 'loan' && loanDetails && (
                 <div className="w-full">
-                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
+                  <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
                     <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Details</p>
                       {decisionStory && (
@@ -415,8 +559,7 @@ export default function Dashboard() {
                         </p>
                       )}
                     </div>
-                    <div className="hidden self-stretch text-center text-2xl font-semibold text-slate-300 md:flex md:items-center md:justify-center">|</div>
-                    <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
+                    <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
                       <p className="mt-1 text-sm text-slate-700">
                         Status{' '}
@@ -434,7 +577,7 @@ export default function Dashboard() {
               )}
               {dataset === 'bankruptcy' && (
                 <div className="w-full">
-                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
+                  <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
                     <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Details</p>
                       {decisionStory && (
@@ -443,8 +586,7 @@ export default function Dashboard() {
                         </p>
                       )}
                     </div>
-                    <div className="hidden self-stretch text-center text-2xl font-semibold text-slate-300 md:flex md:items-center md:justify-center">|</div>
-                    <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
+                    <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
                       <p className="mt-1 text-sm text-slate-700">
                         Status{' '}
@@ -462,7 +604,7 @@ export default function Dashboard() {
               )}
               {dataset === 'credit_risk' && (
                 <div className="w-full">
-                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
+                  <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
                     <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Details</p>
                       {decisionStory && (
@@ -471,8 +613,7 @@ export default function Dashboard() {
                         </p>
                       )}
                     </div>
-                    <div className="hidden self-stretch text-center text-2xl font-semibold text-slate-300 md:flex md:items-center md:justify-center">|</div>
-                    <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
+                    <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
                       <p className="mt-1 text-sm text-slate-700">
                         Status{' '}
