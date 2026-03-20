@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [creditIndex, setCreditIndex] = useState(0)
   const [creditDetails, setCreditDetails] = useState(null)
   const [apiReady, setApiReady] = useState(false)
+  const [sampleLoading, setSampleLoading] = useState(false)
   const selectedSampleRef = useRef({ loan: null, bankruptcy: null, credit_risk: null })
   const hasValue = (v) => v !== null && v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))
   const isPositiveNumber = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
@@ -96,7 +97,11 @@ export default function Dashboard() {
     setLoanDetails(null)
     setBankruptcyDetails(null)
     setCreditDetails(null)
-    if (!apiReady) return () => { active = false }
+    if (!apiReady) {
+      setSampleLoading(false)
+      return () => { active = false }
+    }
+    setSampleLoading(true)
     if (dataset === 'loan') {
       getLoanSamples(30)
         .then(async (data) => {
@@ -145,6 +150,10 @@ export default function Dashboard() {
         .catch(() => {
           if (!active || targetDataset !== 'loan') return
           setFeatures(DEMO_FEATURES.loan.join(', '))
+        })
+        .finally(() => {
+          if (!active || targetDataset !== 'loan') return
+          setSampleLoading(false)
         })
     } else if (dataset === 'bankruptcy') {
       getBankruptcySamples(30)
@@ -198,6 +207,10 @@ export default function Dashboard() {
           if (!active || targetDataset !== 'bankruptcy') return
           setFeatures(DEMO_FEATURES.bankruptcy.join(', '))
           setBankruptcyDetails(null)
+        })
+        .finally(() => {
+          if (!active || targetDataset !== 'bankruptcy') return
+          setSampleLoading(false)
         })
     } else if (dataset === 'credit_risk') {
       getCreditSamples(30)
@@ -255,6 +268,10 @@ export default function Dashboard() {
           setFeatures(DEMO_FEATURES.credit_risk.join(', '))
           setCreditDetails(null)
         })
+        .finally(() => {
+          if (!active || targetDataset !== 'credit_risk') return
+          setSampleLoading(false)
+        })
     }
     return () => {
       active = false
@@ -263,6 +280,10 @@ export default function Dashboard() {
 
   const runAnalyze = useCallback(async () => {
     setError(null)
+    if (sampleLoading) {
+      setError('Please wait for dataset sample loading to finish, then run analysis.')
+      return
+    }
     setLoading(true)
     setPrediction(null)
     setXaiData(null)
@@ -293,10 +314,14 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [dataset, features, method, loanId, featureCounts])
+  }, [dataset, features, method, loanId, featureCounts, sampleLoading])
 
   const runXAI = useCallback(async () => {
     setError(null)
+    if (sampleLoading) {
+      setError('Please wait for dataset sample loading to finish, then run analysis.')
+      return
+    }
     setLoading(true)
     setXaiData(null)
     try {
@@ -325,7 +350,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [dataset, features, method, featureCounts])
+  }, [dataset, features, method, featureCounts, sampleLoading])
 
   const isExpert = true
   const probabilityLabelsByDataset = {
@@ -334,6 +359,14 @@ export default function Dashboard() {
     credit_risk: ['No default', 'Default'],
   }
   const [negativeLabel, positiveLabel] = probabilityLabelsByDataset[dataset] || ['Class 0', 'Class 1']
+  const parsedFeatureCount = features
+    .split(/[\s,]+/)
+    .map((s) => parseFloat(s.trim()))
+    .filter((n) => !Number.isNaN(n))
+    .length
+  const expectedFeatureCount = featureCounts?.[dataset]
+  const isFeatureCountValid = !Number.isFinite(expectedFeatureCount) || parsedFeatureCount === expectedFeatureCount
+  const canRunAnalyze = apiReady && !loading && !sampleLoading && parsedFeatureCount > 0 && isFeatureCountValid
   const positiveProbability = Number.isFinite(prediction?.probability)
     ? Math.min(1, Math.max(0, Number(prediction.probability)))
     : null
@@ -412,6 +445,19 @@ export default function Dashboard() {
   const loanRaw = loanDetails?.raw || {}
   const bankruptcyRaw = bankruptcyDetails?.raw || {}
   const creditRaw = creditDetails?.raw || {}
+  const predictionLabelLower = String(prediction?.prediction_label || '').toLowerCase()
+  const decisionStatusClass = (() => {
+    if (dataset === 'loan') {
+      return predictionLabelLower.includes('approved') ? 'text-emerald-600' : 'text-red-600'
+    }
+    if (dataset === 'bankruptcy') {
+      return predictionLabelLower.includes('bankrupt') ? 'text-red-600' : 'text-emerald-600'
+    }
+    // credit_risk
+    return predictionLabelLower.includes('default') && !predictionLabelLower.includes('no default')
+      ? 'text-red-600'
+      : 'text-emerald-600'
+  })()
   const decisionStory = (() => {
     if (!prediction || predictionPct == null) return null
     if (dataset === 'loan') {
@@ -533,10 +579,10 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={runAnalyze}
-              disabled={loading}
+              disabled={!canRunAnalyze}
               className="rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50"
             >
-              {loading ? 'Analyzing...' : 'Run Analysis'}
+              {loading ? 'Analyzing...' : sampleLoading ? 'Loading sample...' : 'Run Analysis'}
             </button>
           </div>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -562,8 +608,8 @@ export default function Dashboard() {
                     <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
                       <p className="mt-1 text-sm text-slate-700">
-                        Status{' '}
-                        <span className={`font-bold ${prediction.prediction === 1 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        Status:{' '}
+                        <span className={`font-bold ${decisionStatusClass}`}>
                           {prediction.prediction_label}
                         </span>
                       </p>
@@ -589,8 +635,8 @@ export default function Dashboard() {
                     <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
                       <p className="mt-1 text-sm text-slate-700">
-                        Status{' '}
-                        <span className={`font-bold ${prediction.prediction === 1 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        Status:{' '}
+                        <span className={`font-bold ${decisionStatusClass}`}>
                           {prediction.prediction_label}
                         </span>
                       </p>
@@ -616,8 +662,8 @@ export default function Dashboard() {
                     <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
                       <p className="mt-1 text-sm text-slate-700">
-                        Status{' '}
-                        <span className={`font-bold ${prediction.prediction === 1 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        Status:{' '}
+                        <span className={`font-bold ${decisionStatusClass}`}>
                           {prediction.prediction_label}
                         </span>
                       </p>
