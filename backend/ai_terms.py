@@ -5,11 +5,13 @@ Raises RuntimeError if the key is missing or the call fails.
 """
 import json
 import re
+import logging
 from typing import List, Dict, Any
 
 from config import GEMINI_API_KEY
 
 PROMPT_VERSION = "v8_expert_technical_precision"
+logger = logging.getLogger(__name__)
 
 
 def _force_nonexpert_surface(label: str) -> str:
@@ -167,17 +169,36 @@ Reply with ONLY a JSON object: each key is one of the feature names above, each 
 No markdown. No explanation. No extra keys.
 If any label violates rules, correct it before final answer."""
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+    except Exception as e:
+        logger.exception(
+            "Gemini label request failed (dataset=%s, for_expert=%s, feature_count=%d): %s",
+            dataset,
+            for_expert,
+            len(feature_names),
+            e,
+        )
+        raise
     text = (response.text or "").strip()
     if "```" in text:
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     text = text.strip()
 
-    mapping = json.loads(text)
+    try:
+        mapping = json.loads(text)
+    except Exception as e:
+        logger.error(
+            "Gemini label JSON parse failed (dataset=%s, for_expert=%s). Raw response prefix: %r",
+            dataset,
+            for_expert,
+            text[:300],
+        )
+        raise RuntimeError(f"Failed to parse Gemini labels JSON: {e}") from e
     if not isinstance(mapping, dict):
         raise RuntimeError(f"Gemini returned unexpected format: {text[:200]}")
 
@@ -247,17 +268,36 @@ Rules:
 - Avoid generic filler and avoid repeating feature names without interpretation.
 """
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+    except Exception as e:
+        logger.exception(
+            "Gemini DiCE explanation request failed (dataset=%s, expertise=%s, scenarios=%d): %s",
+            dataset,
+            expertise,
+            len(scenarios),
+            e,
+        )
+        raise
     text = (response.text or "").strip()
     if "```" in text:
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     text = text.strip()
 
-    arr = json.loads(text)
+    try:
+        arr = json.loads(text)
+    except Exception as e:
+        logger.error(
+            "Gemini DiCE JSON parse failed (dataset=%s, expertise=%s). Raw response prefix: %r",
+            dataset,
+            expertise,
+            text[:300],
+        )
+        raise RuntimeError(f"Failed to parse Gemini DiCE explanations JSON: {e}") from e
     if not isinstance(arr, list):
         raise RuntimeError(f"Gemini returned invalid scenario explanations format: {text[:200]}")
     if len(arr) != len(scenarios):

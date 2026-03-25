@@ -17,9 +17,9 @@ const METHOD_OPTIONS = ['SHAP', 'LIME', 'DiCE']
 //   Total Asset Turnover, Debt ratio %, Cash Flow/TA,
 //   Interest Coverage Ratio, Current Ratio, Borrowing dependency
 const DEMO_FEATURES = {
-  loan: [1, 0, 0, 5849, 0, 128, 360, 1, 2, 0, 1, 1],
+  loan: [1, 0, 0, 5849, 0, 128, 360, 1, 2, 0, 1],
   bankruptcy: [0.15, 0.12, 0.04, 0.55, 0.65, 0.45, 0.06, 3.5, 1.8, 0.30],
-  credit_risk: [0.5, 35, 0, 0.2, 5000, 5, 0, 0, 2],
+  credit_risk: [0.5, 35, 0, 0.2, 5000, 5, 0, 0, 2, 1],
 }
 
 function makeDemoVector(n) {
@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [bankruptcyDetails, setBankruptcyDetails] = useState(null)
   const [creditIndex, setCreditIndex] = useState(0)
   const [creditDetails, setCreditDetails] = useState(null)
+  const [detailComparisons, setDetailComparisons] = useState({ loan: [], bankruptcy: [], credit_risk: [] })
   const [apiReady, setApiReady] = useState(false)
   const [sampleLoading, setSampleLoading] = useState(false)
   const selectedSampleRef = useRef({ loan: null, bankruptcy: null, credit_risk: null })
@@ -70,6 +71,37 @@ export default function Dashboard() {
       && isPositiveNumber(Number(raw.age))
       && isPositiveNumber(Number(raw.NumberOfOpenCreditLinesAndLoans))
   }
+  const getDatasetStatusLabel = (datasetName, sample) => {
+    if (!sample) return null
+    if (datasetName === 'loan') {
+      const rawStatus = String(sample?.loan_status ?? sample?.raw?.Loan_Status ?? '').trim().toUpperCase()
+      if (rawStatus === 'Y' || rawStatus.includes('APPROV')) return 'Approved'
+      if (rawStatus === 'N' || rawStatus.includes('DENIED') || rawStatus.includes('REJECT')) return 'Not Approved'
+      return null
+    }
+    if (datasetName === 'bankruptcy') {
+      const rawStatus = String(sample?.status_label ?? sample?.raw?.status_label ?? sample?.raw?.['Bankrupt?'] ?? '').trim().toLowerCase()
+      if (rawStatus.includes('alive') || rawStatus === '0') return 'Alive'
+      if (rawStatus.includes('bankrupt') || rawStatus === '1') return 'Bankrupt'
+      return null
+    }
+    const serious = Number(sample?.serious_dlq ?? sample?.raw?.SeriousDlqin2yrs)
+    if (!Number.isFinite(serious)) return null
+    return serious >= 1 ? 'Higher Payment Risk' : 'Lower Payment Risk'
+  }
+  const pickComparisonSamples = (datasetName, samples) => {
+    const valid = (samples || []).filter(Boolean)
+    if (!valid.length) return []
+    const desiredPair = {
+      loan: ['Approved', 'Not Approved'],
+      bankruptcy: ['Alive', 'Bankrupt'],
+      credit_risk: ['Lower Payment Risk', 'Higher Payment Risk'],
+    }[datasetName] || [null, null]
+    const favorable = valid.find((s) => getDatasetStatusLabel(datasetName, s) === desiredPair[0]) || null
+    const adverse = valid.find((s) => getDatasetStatusLabel(datasetName, s) === desiredPair[1] && s !== favorable) || null
+    if (favorable && adverse) return [favorable, adverse]
+    return valid.slice(0, 2)
+  }
 
   // Fetch datasets and feature counts on load; detect if backend is reachable
   useEffect(() => {
@@ -97,6 +129,7 @@ export default function Dashboard() {
     setLoanDetails(null)
     setBankruptcyDetails(null)
     setCreditDetails(null)
+    setDetailComparisons((prev) => ({ ...prev, [dataset]: [] }))
     if (!apiReady) {
       setSampleLoading(false)
       return () => { active = false }
@@ -110,9 +143,11 @@ export default function Dashboard() {
           if (!ids.length) return null
           let fallbackSample = null
           const validSamples = []
+          const fetchedSamples = []
           for (const id of ids) {
             try {
               const sample = await getLoanSample(id)
+              fetchedSamples.push(sample)
               if (!fallbackSample) fallbackSample = sample
               if (hasValidLoanStoryData(sample)) {
                 validSamples.push(sample)
@@ -126,17 +161,19 @@ export default function Dashboard() {
             const savedSample = savedId
               ? validSamples.find((s) => s?.loan_id === savedId)
               : null
-            const chosen = savedSample || validSamples[Math.floor(Math.random() * validSamples.length)]
+            const chosen = savedSample || validSamples[0]
             selectedSampleRef.current.loan = chosen?.loan_id || null
-            return chosen
+            return { chosen, comparisons: pickComparisonSamples('loan', fetchedSamples) }
           }
           if (fallbackSample?.loan_id) {
             selectedSampleRef.current.loan = fallbackSample.loan_id
           }
-          return fallbackSample
+          return { chosen: fallbackSample, comparisons: pickComparisonSamples('loan', fetchedSamples) }
         })
-        .then((sample) => {
+        .then((result) => {
           if (!active || targetDataset !== 'loan') return
+          const sample = result?.chosen
+          setDetailComparisons((prev) => ({ ...prev, loan: result?.comparisons || [] }))
           if (sample?.features?.length) {
             setLoanId(sample.loan_id || '')
             setFeatures(sample.features.join(', '))
@@ -150,6 +187,7 @@ export default function Dashboard() {
         .catch(() => {
           if (!active || targetDataset !== 'loan') return
           setFeatures(DEMO_FEATURES.loan.join(', '))
+          setDetailComparisons((prev) => ({ ...prev, loan: [] }))
         })
         .finally(() => {
           if (!active || targetDataset !== 'loan') return
@@ -163,9 +201,11 @@ export default function Dashboard() {
           if (!names.length) return null
           let fallbackSample = null
           const validSamples = []
+          const fetchedSamples = []
           for (const name of names) {
             try {
               const sample = await getBankruptcySample(name)
+              fetchedSamples.push(sample)
               if (!fallbackSample) fallbackSample = sample
               if (hasValidBankruptcyStoryData(sample)) {
                 validSamples.push(sample)
@@ -179,17 +219,19 @@ export default function Dashboard() {
             const savedSample = savedName
               ? validSamples.find((s) => s?.company_name === savedName)
               : null
-            const chosen = savedSample || validSamples[Math.floor(Math.random() * validSamples.length)]
+            const chosen = savedSample || validSamples[0]
             selectedSampleRef.current.bankruptcy = chosen?.company_name || null
-            return chosen
+            return { chosen, comparisons: pickComparisonSamples('bankruptcy', fetchedSamples) }
           }
           if (fallbackSample?.company_name) {
             selectedSampleRef.current.bankruptcy = fallbackSample.company_name
           }
-          return fallbackSample
+          return { chosen: fallbackSample, comparisons: pickComparisonSamples('bankruptcy', fetchedSamples) }
         })
-        .then((sample) => {
+        .then((result) => {
           if (!active || targetDataset !== 'bankruptcy') return
+          const sample = result?.chosen
+          setDetailComparisons((prev) => ({ ...prev, bankruptcy: result?.comparisons || [] }))
           if (sample?.features?.length) {
             setCompanyName(sample.company_name || '')
             setFeatures(sample.features.join(', '))
@@ -207,6 +249,7 @@ export default function Dashboard() {
           if (!active || targetDataset !== 'bankruptcy') return
           setFeatures(DEMO_FEATURES.bankruptcy.join(', '))
           setBankruptcyDetails(null)
+          setDetailComparisons((prev) => ({ ...prev, bankruptcy: [] }))
         })
         .finally(() => {
           if (!active || targetDataset !== 'bankruptcy') return
@@ -220,9 +263,11 @@ export default function Dashboard() {
           if (!indices.length) return null
           let fallbackSample = null
           const validSamples = []
+          const fetchedSamples = []
           for (const idx of indices) {
             try {
               const sample = await getCreditSample(idx)
+              fetchedSamples.push(sample)
               if (!fallbackSample) fallbackSample = sample
               if (hasValidCreditStoryData(sample)) {
                 validSamples.push(sample)
@@ -236,19 +281,21 @@ export default function Dashboard() {
             const savedSample = Number.isInteger(savedIndex)
               ? validSamples.find((s) => Number(s?.index) === savedIndex)
               : null
-            const chosen = savedSample || validSamples[Math.floor(Math.random() * validSamples.length)]
+            const chosen = savedSample || validSamples[0]
             selectedSampleRef.current.credit_risk = Number.isFinite(Number(chosen?.index))
               ? Number(chosen.index)
               : null
-            return chosen
+            return { chosen, comparisons: pickComparisonSamples('credit_risk', fetchedSamples) }
           }
           if (Number.isFinite(Number(fallbackSample?.index))) {
             selectedSampleRef.current.credit_risk = Number(fallbackSample.index)
           }
-          return fallbackSample
+          return { chosen: fallbackSample, comparisons: pickComparisonSamples('credit_risk', fetchedSamples) }
         })
-        .then((sample) => {
+        .then((result) => {
           if (!active || targetDataset !== 'credit_risk') return
+          const sample = result?.chosen
+          setDetailComparisons((prev) => ({ ...prev, credit_risk: result?.comparisons || [] }))
           if (sample?.features?.length) {
             setCreditIndex(Number.isFinite(sample.index) ? sample.index : 0)
             setFeatures(sample.features.join(', '))
@@ -267,6 +314,7 @@ export default function Dashboard() {
           if (!active || targetDataset !== 'credit_risk') return
           setFeatures(DEMO_FEATURES.credit_risk.join(', '))
           setCreditDetails(null)
+          setDetailComparisons((prev) => ({ ...prev, credit_risk: [] }))
         })
         .finally(() => {
           if (!active || targetDataset !== 'credit_risk') return
@@ -534,29 +582,90 @@ export default function Dashboard() {
       .join(', ')
     return `Credit record #${creditDetails?.index ?? creditIndex} reflects the following profile: ${creditPreview || 'key credit-risk details available'}.`
   })()
-  const datasetContextByDataset = {
-    loan: [
-      'This loan approval dataset contains 614 application records.',
-      'Each row is one applicant profile with fields such as income, credit history, loan amount, and repayment term.',
-      'The table combines personal attributes (for example education and marital status) with financial loan-request fields.',
-      'Data is stored as a tabular borrower-level dataset where one row = one loan case.',
-    ],
-    bankruptcy: [
-      'This corporate bankruptcy dataset contains 6,819 company records.',
-      'Each row represents one company profile derived from financial statements.',
-      'Most columns are financial ratios (profitability, leverage, liquidity, and operating efficiency).',
-      'The dataset is structured as a company-level table with numeric financial indicators per row.',
-      'It captures historical accounting signals used to describe corporate financial condition.',
-    ],
-    credit_risk: [
-      'This credit-risk dataset (cs-training) contains about 150,000 borrower records.',
-      'Each row is one consumer credit profile captured at a specific snapshot in time.',
-      'Columns include debt ratio, utilization, number of credit lines, and past-due/delinquency behavior.',
-      'It is a large borrower-level tabular database focused on repayment-behavior variables.',
-      'The dataset mixes balance-sheet style credit fields with payment-history signals.',
-    ],
+  const buildSampleStory = (datasetName, sample) => {
+    const raw = sample?.raw || {}
+    if (datasetName === 'loan') {
+      const applicantIncome = raw.ApplicantIncome != null ? formatUSD(raw.ApplicantIncome) : '$0'
+      const coapplicantIncome = raw.CoapplicantIncome != null ? formatUSD(raw.CoapplicantIncome) : '$0'
+      const householdIncomeNum = Number(raw.ApplicantIncome || 0) + Number(raw.CoapplicantIncome || 0)
+      const householdIncome = householdIncomeNum > 0 ? formatUSD(householdIncomeNum) : '$0'
+      const loanAmountNumeric = Number(raw.LoanAmount)
+      const loanAmount = Number.isFinite(loanAmountNumeric) && loanAmountNumeric > 0
+        ? formatLoanAmountUSD(loanAmountNumeric)
+        : `${formatLoanAmountUSD(128)} (imputed)`
+      const loanTerm = raw.Loan_Amount_Term != null ? `${formatCount(raw.Loan_Amount_Term)} months` : '360 months'
+      return `Loan ID ${sample?.loan_id || loanId} has applicant income ${applicantIncome}, coapplicant income ${coapplicantIncome} (total ${householdIncome}), requested loan amount ${loanAmount}, and a ${loanTerm} term.`
+    }
+    if (datasetName === 'bankruptcy') {
+      const company = sample?.company_name || companyName
+      const yearPart = sample?.year != null ? ` in year ${sample.year}` : ''
+      const preferredOrder = [
+        'ROA(C) before interest and depreciation before interest',
+        'ROA(A) before interest and % after tax',
+        'Debt ratio %',
+        'Current Ratio',
+        'Interest Coverage Ratio',
+        'Cash Flow/Total Assets',
+        'Net worth/Assets',
+        'Working Capital/Total Assets',
+        'Total Asset Turnover',
+        'Borrowing dependency',
+        'Retained Earnings/Total Assets',
+      ]
+      const metricOrderIndex = new Map(preferredOrder.map((k, i) => [k, i]))
+      const metricPreview = Object.entries(raw)
+        .filter(([k, v]) => !['company_name', 'year', 'status_label', 'Bankrupt?'].includes(k) && typeof v === 'number' && Number.isFinite(v))
+        .sort(([a], [b]) => {
+          const ai = metricOrderIndex.has(a) ? metricOrderIndex.get(a) : Number.MAX_SAFE_INTEGER
+          const bi = metricOrderIndex.has(b) ? metricOrderIndex.get(b) : Number.MAX_SAFE_INTEGER
+          if (ai !== bi) return ai - bi
+          return a.localeCompare(b)
+        })
+        .slice(0, 4)
+        .map(([k, v]) => `${formatBankruptcyMetricLabel(k)} ${formatBankruptcyMetricValue(k, v)}`)
+        .join(', ')
+      return `Company ${company}${yearPart} was assessed using key bankruptcy indicators${metricPreview ? `, including ${metricPreview}` : ''}.`
+    }
+    const importantCreditFields = [
+      ['age', (v) => `${formatCount(v)} years`],
+      ['MonthlyIncome', (v) => `${formatUSD(v)} per month`],
+      ['DebtRatio', (v) => formatRatioAsPercent(v)],
+      ['RevolvingUtilizationOfUnsecuredLines', (v) => formatRatioAsPercent(v)],
+      ['NumberOfTime30-59DaysPastDueNotWorse', (v) => `${formatCount(v)} times`],
+      ['NumberOfOpenCreditLinesAndLoans', (v) => `${formatCount(v)} lines`],
+    ]
+    const creditPreview = importantCreditFields
+      .filter(([k]) => hasValue(raw[k]))
+      .slice(0, 4)
+      .map(([k, formatter]) => {
+        const label = k
+          .replace('MonthlyIncome', 'monthly income')
+          .replace('DebtRatio', 'debt ratio')
+          .replace('RevolvingUtilizationOfUnsecuredLines', 'revolving utilization')
+          .replace('NumberOfTime30-59DaysPastDueNotWorse', '30-59 days past due')
+          .replace('NumberOfOpenCreditLinesAndLoans', 'open credit lines')
+          .replace('age', 'age')
+        return `${label} ${formatter(raw[k])}`
+      })
+      .join(', ')
+    return `Credit record #${sample?.index ?? creditIndex} reflects the following profile: ${creditPreview || 'key credit-risk details available'}.`
   }
-  const datasetContext = datasetContextByDataset[dataset] || []
+  const comparisonProfiles = (detailComparisons?.[dataset] || []).map((sample, idx) => {
+    const statusLabel = getDatasetStatusLabel(dataset, sample) || 'Unknown'
+    const isNegative = /not approved|bankrupt|higher/i.test(statusLabel)
+    const isPositive = !isNegative && /approved|alive|lower/i.test(statusLabel)
+    const statusToneClass = isNegative ? 'text-red-600' : isPositive ? 'text-emerald-600' : 'text-slate-700'
+    const statusBadgeClass = isNegative ? 'border-red-200 bg-red-50' : isPositive ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'
+    const subjectLabel = dataset === 'bankruptcy' ? `Company ${String.fromCharCode(65 + idx)}` : `Applicant ${String.fromCharCode(65 + idx)}`
+    return {
+      key: `${dataset}-${idx}-${statusLabel}-${subjectLabel}`,
+      subjectLabel,
+      statusLabel,
+      statusToneClass,
+      statusBadgeClass,
+      story: buildSampleStory(dataset, sample),
+    }
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50/60 via-cyan-50/20 to-white">
@@ -585,7 +694,7 @@ export default function Dashboard() {
               <select
                 value={dataset}
                 onChange={(e) => setDataset(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                className="w-full rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-300"
                 style={{ fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: '0', wordSpacing: '0' }}
               >
                 {Object.entries(DATASET_LABELS).map(([value, label]) => (
@@ -598,7 +707,7 @@ export default function Dashboard() {
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                className="w-full rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-300"
                 style={{ fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: '0', wordSpacing: '0' }}
               >
                 {METHOD_OPTIONS.map((m) => (
@@ -620,96 +729,39 @@ export default function Dashboard() {
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </section>
 
-        {prediction && (
-          <section className="mb-6 rounded-2xl border-2 border-emerald-200/80 bg-gradient-to-r from-emerald-50/40 to-cyan-50/30 p-6 shadow-sm ring-1 ring-emerald-100/80">
+        {comparisonProfiles.length > 0 && (
+          <section className="mb-6 rounded-2xl border-2 border-slate-300 bg-white p-6 shadow-sm ring-1 ring-slate-200">
             <h2 className="font-display mb-4 text-lg font-bold text-slate-900 md:text-xl">
               {dataset === 'loan' ? 'Loan Details' : dataset === 'credit_risk' ? 'Credit Details' : 'Company Details'}
             </h2>
-            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1">
-              {dataset === 'loan' && loanDetails && (
-                <div className="w-full">
-                  <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
-                    <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Details</p>
-                      {decisionStory && (
-                        <p className="mt-1 text-sm leading-relaxed text-slate-700">
-                          {decisionStory}
-                        </p>
-                      )}
-                    </div>
-                    <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        Status:{' '}
-                        <span className={`font-bold ${decisionStatusClass}`}>
-                          {displayPredictionLabel}
+            <div className="overflow-x-auto rounded-xl border-2 border-slate-400">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="border-b border-r border-slate-400 px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-700">Applicant</th>
+                    <th className="border-b border-r border-slate-400 px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-700">Details</th>
+                    <th className="border-b border-slate-400 px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-700">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {comparisonProfiles.map((profile, idx) => (
+                    <tr key={profile.key} className={idx % 2 === 1 ? 'bg-slate-50/40' : ''}>
+                      <td className="border-b border-r border-slate-400 px-3 py-2 font-semibold text-slate-800">{profile.subjectLabel}</td>
+                      <td className="border-b border-r border-slate-400 px-3 py-2 leading-relaxed text-slate-700">{profile.story}</td>
+                      <td className="border-b border-slate-400 px-3 py-2">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${profile.statusToneClass} ${profile.statusBadgeClass}`}>
+                          {profile.statusLabel}
                         </span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {dataset === 'bankruptcy' && (
-                <div className="w-full">
-                  <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
-                    <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Details</p>
-                      {decisionStory && (
-                        <p className="mt-1 text-sm leading-relaxed text-slate-700">
-                          {decisionStory}
-                        </p>
-                      )}
-                    </div>
-                    <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        Status:{' '}
-                        <span className={`font-bold ${decisionStatusClass}`}>
-                          {displayPredictionLabel}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {dataset === 'credit_risk' && (
-                <div className="w-full">
-                  <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
-                    <div className="rounded-xl border border-slate-200 bg-white/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Details</p>
-                      {decisionStory && (
-                        <p className="mt-1 text-sm leading-relaxed text-slate-700">
-                          {decisionStory}
-                        </p>
-                      )}
-                    </div>
-                    <div className="h-full rounded-xl border border-slate-200 bg-white/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Decision</p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        Status:{' '}
-                        <span className={`font-bold ${decisionStatusClass}`}>
-                          {displayPredictionLabel}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            {datasetContext.length > 0 && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Dataset context</p>
-                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
-                  {datasetContext.map((line, idx) => (
-                    <li key={`dataset-context-${dataset}-${idx}`}>{line}</li>
+                      </td>
+                    </tr>
                   ))}
-                </ul>
-              </div>
-            )}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
 
-        <section className="rounded-2xl border-2 border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-100">
+        <section className="rounded-2xl border-2 border-slate-300 bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <h2 className="font-display mb-1 text-lg font-bold text-slate-900 md:text-xl">
             {method === 'SHAP' ? 'SHAP Analysis' : method === 'LIME' ? 'LIME Analysis' : method === 'DiCE' ? 'DiCE Counterfactuals' : 'Explanation'}
           </h2>
@@ -727,7 +779,7 @@ export default function Dashboard() {
           {method === 'SHAP' && (
             <>
               {xaiData?.image_url ? (
-                <div className="rounded-lg border-2 border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                <div className="rounded-lg border-2 border-slate-300 bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <h3 className="font-display mb-3 text-sm font-semibold text-gray-700">
                     {isExpert ? 'Global Feature Importance - Loan Approval Model (Expert View)' : 'What most affected the loan decision (Non-Expert View)'}
                   </h3>
@@ -745,7 +797,7 @@ export default function Dashboard() {
           {method === 'LIME' && (
             <>
               {xaiData?.image_url ? (
-                <div className="rounded-lg border-2 border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                <div className="rounded-lg border-2 border-slate-300 bg-white p-4 shadow-sm ring-1 ring-slate-200">
                   <h3 className="font-display mb-3 text-sm font-semibold text-gray-700">
                     {isExpert ? 'LIME local explanation (Expert View)' : 'Local explanation (Non-Expert View)'}
                   </h3>
@@ -756,7 +808,7 @@ export default function Dashboard() {
                   />
                   {prediction && positiveProbability != null && (
                     <div className="mt-5 border-t border-gray-200 pt-4">
-                      <div className="mx-auto w-full max-w-xl rounded-2xl border-2 border-slate-200 bg-gradient-to-b from-white via-slate-50 to-white p-6 shadow-sm ring-1 ring-slate-100">
+                      <div className="mx-auto w-full max-w-xl rounded-2xl border-2 border-slate-300 bg-gradient-to-b from-white via-slate-50 to-white p-6 shadow-sm ring-1 ring-slate-200">
                         <div>
                           <div>
                             <h3 className="text-base font-semibold tracking-wide text-slate-800">Class probabilities</h3>
@@ -767,7 +819,7 @@ export default function Dashboard() {
                           <div>
                             <div className="mb-1.5 grid grid-cols-[1fr_auto] items-center text-sm text-gray-700">
                               <span className="font-medium">{negativeLabel}</span>
-                              <span className="border-l border-slate-200 pl-3 font-semibold tabular-nums text-slate-700">
+                              <span className="border-l border-slate-300 pl-3 font-semibold tabular-nums text-slate-700">
                                 {(negativeProbability * 100).toFixed(1)}%
                               </span>
                             </div>
@@ -781,7 +833,7 @@ export default function Dashboard() {
                           <div>
                             <div className="mb-1.5 grid grid-cols-[1fr_auto] items-center text-sm text-gray-700">
                               <span className="font-medium">{positiveLabel}</span>
-                              <span className="border-l border-slate-200 pl-3 font-semibold tabular-nums text-slate-700">
+                              <span className="border-l border-slate-300 pl-3 font-semibold tabular-nums text-slate-700">
                                 {(positiveProbability * 100).toFixed(1)}%
                               </span>
                             </div>
@@ -804,7 +856,7 @@ export default function Dashboard() {
           )}
           {method === 'DiCE' && <DiCEPanel data={xaiData} />}
           {!xaiData && !loading && (
-            <p className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm text-gray-500">
+            <p className="rounded-lg border-2 border-dashed border-slate-400 bg-slate-50 p-4 text-center text-sm text-gray-500">
               Choose options above and run analysis to see the chart.
             </p>
           )}

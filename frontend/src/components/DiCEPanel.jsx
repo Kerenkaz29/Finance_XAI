@@ -1,6 +1,29 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 
 export function DiCEPanel({ data }) {
+  useEffect(() => {
+    if (!data) return
+    const responseMethod = String(data.method || '').toUpperCase()
+    if (responseMethod && responseMethod !== 'DICE') return
+    if (data.error) {
+      console.error('[DiCE] Request failed', {
+        error: data.error,
+        dataset: data.dataset || null,
+        description: data.description || null,
+        payload: data,
+      })
+      return
+    }
+    const cfs = Array.isArray(data.counterfactuals) ? data.counterfactuals : []
+    if (cfs.length === 0) {
+      console.warn('[DiCE] No counterfactuals generated', {
+        dataset: data.dataset || null,
+        description: data.description || null,
+        payload: data,
+      })
+    }
+  }, [data])
+
   if (!data) {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-6 text-gray-500">

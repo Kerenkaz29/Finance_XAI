@@ -6,9 +6,14 @@ import numpy as np
 import json
 import re
 import os
+import time
+import random
+import threading
+import logging
 from typing import List, Dict, Any, Optional
 
 from config import EXPERTISE_LEVELS
+logger = logging.getLogger(__name__)
 
 try:
     from ai_terms import get_ai_feature_labels, get_ai_dice_scenario_explanations
@@ -35,27 +40,53 @@ except ImportError:
     DICE_AVAILABLE = False
 
 
-# DiCE speed controls (fast by default, Gemini explanations enabled)
+# DiCE speed controls (speed-first defaults)
 DICE_FAST_MODE = os.environ.get("XAI_DICE_FAST_MODE", "1").strip().lower() in ("1", "true", "yes", "on")
 DICE_DEFAULT_NUM_CF = int(os.environ.get("XAI_DICE_NUM_CF", "3"))
-DICE_DIVERSITY_FACTOR = max(1, int(os.environ.get("XAI_DICE_DIVERSITY_FACTOR", "4")))
-DICE_MAX_CHANGES_PER_SCENARIO = max(1, int(os.environ.get("XAI_DICE_MAX_CHANGES", "3")))
+DICE_DIVERSITY_FACTOR = max(1, int(os.environ.get("XAI_DICE_DIVERSITY_FACTOR", "2")))
+DICE_MAX_CHANGES_PER_SCENARIO = max(1, int(os.environ.get("XAI_DICE_MAX_CHANGES", "2")))
+DICE_MIN_CHANGES_PER_SCENARIO = max(1, int(os.environ.get("XAI_DICE_MIN_CHANGES", "2")))
 DICE_ENABLE_GEMINI_EXPLANATIONS = os.environ.get("XAI_DICE_GEMINI", "1").strip().lower() in ("1", "true", "yes", "on")
+DICE_RANDOM_SEED = int(os.environ.get("XAI_DICE_RANDOM_SEED", "42"))
+DICE_RETRY_WITH_GENETIC = os.environ.get("XAI_DICE_RETRY_WITH_GENETIC", "0").strip().lower() in ("1", "true", "yes", "on")
+
+_FEATURE_LABELS_CACHE: Dict[tuple, Dict[str, str]] = {}
+_FEATURE_LABELS_CACHE_LOCK = threading.Lock()
 
 
 
 
 def get_feature_display_names(dataset: str, feature_names: List[str], for_expert: bool = False) -> Dict[str, str]:
-    """Always use Gemini to generate feature display labels."""
+    """Prefer Gemini labels; gracefully fallback to deterministic local labels."""
+    cache_key = (dataset, bool(for_expert), tuple(feature_names))
+    with _FEATURE_LABELS_CACHE_LOCK:
+        cached = _FEATURE_LABELS_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    labels = None
     if get_ai_feature_labels:
-        ai_labels = get_ai_feature_labels(feature_names, dataset, for_expert)
-        if ai_labels:
-            return ai_labels
-    # Gemini unavailable or failed — raise so the caller knows
-    raise RuntimeError(
-        f"Gemini could not generate labels for dataset='{dataset}', for_expert={for_expert}. "
-        "Check GEMINI_API_KEY in .env and that google-generativeai is installed."
-    )
+        try:
+            ai_labels = get_ai_feature_labels(feature_names, dataset, for_expert)
+            if ai_labels:
+                labels = ai_labels
+        except Exception as e:
+            logger.warning(
+                "[Labels] Gemini labels unavailable; using fallback labels dataset=%s for_expert=%s error=%s",
+                dataset,
+                for_expert,
+                e,
+            )
+    if labels is None:
+        # Fallback path keeps API stable even when Gemini is unavailable.
+        if for_expert:
+            labels = {name: _feature_name_for_expert(name) for name in feature_names}
+        else:
+            labels = {name: _feature_name_for_expert(name).lower() for name in feature_names}
+
+    with _FEATURE_LABELS_CACHE_LOCK:
+        _FEATURE_LABELS_CACHE[cache_key] = labels
+    return labels
 
 
 def _feature_name_for_expert(raw_name: str) -> str:
@@ -284,12 +315,35 @@ def get_dice_counterfactuals(
 ) -> Dict[str, Any]:
     """DiCE counterfactuals: what to change to flip the outcome."""
     if not DICE_AVAILABLE:
+        logger.error("[DiCE] dice_ml not installed")
         return {"error": "dice_ml not installed", "counterfactuals": []}
 
+    started_at = time.perf_counter()
     try:
         if num_cf is None:
             num_cf = DICE_DEFAULT_NUM_CF
         num_cf = max(1, int(num_cf))
+        diversity_factor = DICE_DIVERSITY_FACTOR
+        max_changes_per_scenario = DICE_MAX_CHANGES_PER_SCENARIO
+        retry_with_genetic = DICE_RETRY_WITH_GENETIC
+
+        # Credit-risk has higher-dimensional tabular space; keep defaults tighter for responsiveness.
+        if dataset == "credit_risk":
+            diversity_factor = 1
+            max_changes_per_scenario = max(2, max_changes_per_scenario)
+            retry_with_genetic = False
+
+        logger.info(
+            "[DiCE] Start dataset=%s expertise=%s model_type=%s num_cf=%d fast_mode=%s diversity_factor=%d max_changes=%d gemini=%s",
+            dataset,
+            expertise,
+            model_type,
+            num_cf,
+            DICE_FAST_MODE,
+            diversity_factor,
+            max_changes_per_scenario,
+            DICE_ENABLE_GEMINI_EXPLANATIONS,
+        )
 
         import pandas as pd
         X_train_df = pd.DataFrame(X_train, columns=feature_names)
@@ -332,16 +386,87 @@ def get_dice_counterfactuals(
             outcome_name="outcome",
         )
         backend = dice_ml.Model(model=backend_model, backend="sklearn")
-        exp = dice_ml.Dice(d, backend, method="random" if DICE_FAST_MODE else "genetic")
-        # Generate counterfactuals
-        requested_total_cfs = max(num_cf, num_cf * DICE_DIVERSITY_FACTOR)
-        dice_exp = exp.generate_counterfactuals(
-            X_instance_df,
-            total_CFs=requested_total_cfs,
-            desired_class="opposite",
-        )
-        cf_list = dice_exp.cf_examples_list
+        # Seed stochastic search so repeated requests are more stable.
+        np.random.seed(DICE_RANDOM_SEED)
+        random.seed(DICE_RANDOM_SEED)
+
+        # Dataset-specific controls to make DiCE faster and more stable on credit-risk.
+        generate_kwargs: Dict[str, Any] = {"desired_class": "opposite"}
+        if dataset == "credit_risk":
+            preferred_features = [
+                "RevolvingUtilizationOfUnsecuredLines",
+                "DebtRatio",
+                "MonthlyIncome",
+                "NumberOfOpenCreditLinesAndLoans",
+                "NumberOfTimes90DaysLate",
+                "NumberOfTime30-59DaysPastDueNotWorse",
+                "NumberOfTime60-89DaysPastDueNotWorse",
+            ]
+            features_to_vary = [f for f in preferred_features if f in feature_names]
+            if features_to_vary:
+                generate_kwargs["features_to_vary"] = features_to_vary
+
+            # Keep search within robust quantile ranges to avoid extreme candidates.
+            permitted_range = {}
+            for col in features_to_vary:
+                try:
+                    q_lo, q_hi = np.nanquantile(X_train_df[col].to_numpy(dtype=float), [0.05, 0.95])
+                    lo = float(q_lo)
+                    hi = float(q_hi)
+                    if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
+                        permitted_range[col] = [round(lo, 6), round(hi, 6)]
+                except Exception:
+                    continue
+            if permitted_range:
+                generate_kwargs["permitted_range"] = permitted_range
+
+        # Generate counterfactuals with fallback strategy for consistency.
+        requested_total_cfs = max(num_cf, num_cf * diversity_factor)
+        methods_to_try = ["random" if DICE_FAST_MODE else "genetic"]
+        if retry_with_genetic and "genetic" not in methods_to_try:
+            methods_to_try.append("genetic")
+
+        cf_list = None
+        last_attempt_error = None
+        for i, method_name in enumerate(methods_to_try, start=1):
+            # Use a wider search budget on fallback attempts.
+            attempt_total_cfs = requested_total_cfs if i == 1 else max(requested_total_cfs * 2, requested_total_cfs + 2)
+            logger.info(
+                "[DiCE] Attempt %d/%d method=%s total_cfs=%d",
+                i,
+                len(methods_to_try),
+                method_name,
+                attempt_total_cfs,
+            )
+            try:
+                exp = dice_ml.Dice(d, backend, method=method_name)
+                dice_exp = exp.generate_counterfactuals(
+                    X_instance_df,
+                    total_CFs=attempt_total_cfs,
+                    **generate_kwargs,
+                )
+                candidate = dice_exp.cf_examples_list
+                if candidate and len(candidate) > 0 and candidate[0] is not None:
+                    cf_list = candidate
+                    logger.info("[DiCE] Attempt %d succeeded with method=%s", i, method_name)
+                    break
+                logger.warning("[DiCE] Attempt %d produced no scenarios method=%s", i, method_name)
+            except Exception as attempt_error:
+                last_attempt_error = attempt_error
+                logger.warning(
+                    "[DiCE] Attempt %d failed method=%s error=%s",
+                    i,
+                    method_name,
+                    attempt_error,
+                )
+
         if not cf_list or len(cf_list) == 0 or cf_list[0] is None:
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.warning(
+                "[DiCE] No counterfactuals generated (elapsed_ms=%d, last_error=%s)",
+                elapsed_ms,
+                last_attempt_error,
+            )
             return {"method": "DiCE", "expertise": expertise, "dataset": dataset, "counterfactuals": [], "description": "No counterfactuals generated."}
         cfs = cf_list[0]
         if hasattr(cfs, "final_cfs_df"):
@@ -376,9 +501,16 @@ def get_dice_counterfactuals(
                         changes_full[c] = {"from": round(ov, 4), "to": round(nv, 4)}
             if changes_full:
                 candidate_cfs.append({"idx": i, "changes_full": changes_full})
+        logger.info("[DiCE] Candidate scenarios count=%d", len(candidate_cfs))
+
+        # Prefer candidates that already include at least two changes (when available).
+        min_required_changes = min(DICE_MIN_CHANGES_PER_SCENARIO, max_changes_per_scenario)
+        candidate_pool = [c for c in candidate_cfs if len(c["changes_full"]) >= min_required_changes]
+        if not candidate_pool:
+            candidate_pool = candidate_cfs
 
         selected_candidates = []
-        remaining = candidate_cfs.copy()
+        remaining = candidate_pool.copy()
         used_features = set()
         # Greedy diverse pick across scenarios.
         while remaining and len(selected_candidates) < num_cf:
@@ -397,13 +529,14 @@ def get_dice_counterfactuals(
             used_features.update(best["changes_full"].keys())
 
         if len(selected_candidates) < num_cf:
-            for cand in candidate_cfs:
+            for cand in candidate_pool:
                 if cand not in selected_candidates:
                     selected_candidates.append(cand)
                 if len(selected_candidates) >= num_cf:
                     break
 
         selected_candidates = selected_candidates[:num_cf]
+        logger.info("[DiCE] Selected scenarios count=%d", len(selected_candidates))
         used_features_limited = set()
         counterfactuals = []
         for cand in selected_candidates:
@@ -419,15 +552,15 @@ def get_dice_counterfactuals(
             for name, delta in ranked:
                 if name not in used_features_limited:
                     chosen.append((name, delta))
-                if len(chosen) >= DICE_MAX_CHANGES_PER_SCENARIO:
+                if len(chosen) >= max_changes_per_scenario:
                     break
             # Fill remaining slots from strongest remaining variables.
-            if len(chosen) < DICE_MAX_CHANGES_PER_SCENARIO:
+            if len(chosen) < max_changes_per_scenario:
                 for name, delta in ranked:
                     if any(name == n for n, _ in chosen):
                         continue
                     chosen.append((name, delta))
-                    if len(chosen) >= DICE_MAX_CHANGES_PER_SCENARIO:
+                    if len(chosen) >= max_changes_per_scenario:
                         break
             limited_changes = {name: delta for name, delta in chosen}
             used_features_limited.update(limited_changes.keys())
@@ -437,28 +570,48 @@ def get_dice_counterfactuals(
             if cf_target_probs is not None and i < len(cf_target_probs):
                 cf_item["target_probability"] = float(cf_target_probs[i])
             counterfactuals.append(cf_item)
+        logger.info("[DiCE] Final counterfactuals count=%d", len(counterfactuals))
         display_names = get_feature_display_names(dataset, feature_names, for_expert=(expertise == "expert"))
         for cf in counterfactuals:
             cf["changes_display"] = {display_names.get(k, _feature_name_for_expert(k)): v for k, v in cf["changes"].items()}
 
         # Gemini explanation for each scenario.
         if get_ai_dice_scenario_explanations and DICE_ENABLE_GEMINI_EXPLANATIONS:
-            scenario_payload = []
-            for cf in counterfactuals:
-                # Always send cleaned display names to Gemini (no underscores).
-                changes_src = cf.get("changes_display") or cf.get("changes")
-                scenario_payload.append({
-                    "target_probability": cf.get("target_probability"),
-                    "changes": changes_src or {},
-                })
-            ai_explanations = get_ai_dice_scenario_explanations(
-                dataset=dataset,
-                expertise=expertise,
-                scenarios=scenario_payload,
-            )
-            for idx, text in enumerate(ai_explanations):
-                if idx < len(counterfactuals):
-                    counterfactuals[idx]["ai_explanation"] = text
+            try:
+                scenario_payload = []
+                for cf in counterfactuals:
+                    # Always send cleaned display names to Gemini (no underscores).
+                    changes_src = cf.get("changes_display") or cf.get("changes")
+                    scenario_payload.append({
+                        "target_probability": cf.get("target_probability"),
+                        "changes": changes_src or {},
+                    })
+                logger.info("[DiCE] Requesting Gemini explanations scenarios=%d", len(scenario_payload))
+                ai_explanations = get_ai_dice_scenario_explanations(
+                    dataset=dataset,
+                    expertise=expertise,
+                    scenarios=scenario_payload,
+                )
+                for idx, text in enumerate(ai_explanations):
+                    if idx < len(counterfactuals):
+                        counterfactuals[idx]["ai_explanation"] = text
+                logger.info("[DiCE] Gemini explanations attached count=%d", len(ai_explanations))
+            except Exception as gemini_error:
+                logger.warning("[DiCE] Gemini explanations skipped due to error=%s", gemini_error)
+
+        # Ensure every scenario has an explanation even if Gemini fails.
+        for cf in counterfactuals:
+            if cf.get("ai_explanation"):
+                continue
+            src = cf.get("changes_display") if expertise == "non_expert" else cf.get("changes")
+            parts = [f"{k}: {v['from']} -> {v['to']}" for k, v in (src or {}).items()]
+            if parts:
+                cf["ai_explanation"] = (
+                    "Recommended changes: " + ", ".join(parts) + ". "
+                    "These adjustments are intended to move the prediction toward the opposite class."
+                )
+            else:
+                cf["ai_explanation"] = "No stable feature-change explanation was generated for this scenario."
 
         # Narrative summary fields for a report-like DiCE panel.
         current_prob = None
@@ -480,6 +633,15 @@ def get_dice_counterfactuals(
                 f"Scenario {i}: " + (", ".join(parts) if parts else "No feature changes suggested.")
             )
 
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "[DiCE] Success dataset=%s cf_count=%d elapsed_ms=%d current_prob=%s best_prob=%s",
+            dataset,
+            len(counterfactuals),
+            elapsed_ms,
+            current_prob,
+            best_cf_prob,
+        )
         return {
             "method": "DiCE",
             "expertise": expertise,
@@ -492,4 +654,6 @@ def get_dice_counterfactuals(
             "description": "What changes would flip the decision? These are example changes." if expertise == "non_expert" else "DiCE counterfactuals: minimal feature perturbations to flip predicted class.",
         }
     except Exception as e:
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.exception("[DiCE] Failed dataset=%s expertise=%s model_type=%s elapsed_ms=%d error=%s", dataset, expertise, model_type, elapsed_ms, e)
         return {"error": str(e), "counterfactuals": []}

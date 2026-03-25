@@ -38,6 +38,8 @@ from config import BASE_DIR, BASE_URL
 _models_ready = False
 _download_progress = {"done": 0, "total": 0, "current": ""}
 _download_progress_lock = threading.Lock()
+_background_cache = {}
+_background_cache_lock = threading.Lock()
 
 # Hardcoded file IDs extracted from the shared Drive folder
 _DRIVE_FILES = {
@@ -275,6 +277,33 @@ def _load_background_data(dataset: str):
     if not os.path.isfile(X_path):
         return None
     return np.load(X_path)
+
+
+def _get_cached_background(dataset: str, scaler, feature_names: List[str], max_rows: int = 200):
+    """
+    Cache background matrix per dataset to avoid repeated file I/O + preprocessing
+    on every XAI request. This improves perceived request-start latency.
+    """
+    key = (dataset, int(max_rows))
+    with _background_cache_lock:
+        cached = _background_cache.get(key)
+    if cached is not None:
+        return cached
+
+    X_train = _load_background_data(dataset)
+    if X_train is not None:
+        X_background = np.asarray(X_train[: min(max_rows, len(X_train))])
+    else:
+        X_bg, _ = _build_background_from_csv(dataset, scaler, max_rows, feature_names)
+        if X_bg is not None:
+            X_background = np.asarray(X_bg)
+        else:
+            # Deterministic tiny fallback if no background source is available.
+            X_background = None
+
+    with _background_cache_lock:
+        _background_cache[key] = X_background
+    return X_background
 
 
 def _build_background_from_csv(dataset: str, scaler, max_rows: int = 200, feature_names: List[str] = None):
@@ -750,17 +779,12 @@ def xai_explain(req: XAIRequest):
     X_df = pd.DataFrame(X, columns=feature_names)
     X_scaled = scaler.transform(X_df)
     X_scaled = np.asarray(X_scaled)
-    X_train = _load_background_data(req.dataset)
-    if X_train is not None:
-        X_background = X_train[: min(200, len(X_train))]
-    else:
-        X_bg, _ = _build_background_from_csv(req.dataset, scaler, 200, feature_names)
-        if X_bg is not None:
-            X_background = np.asarray(X_bg)
-        else:
-            rng = np.random.RandomState(42)
-            noise = rng.randn(100, X_scaled.shape[1]) * 0.15
-            X_background = np.clip(X_scaled + noise, -5, 5)
+    bg_rows = 120 if req.method == "DiCE" else 200
+    X_background = _get_cached_background(req.dataset, scaler, feature_names, max_rows=bg_rows)
+    if X_background is None:
+        rng = np.random.RandomState(42)
+        noise = rng.randn(80, X_scaled.shape[1]) * 0.15
+        X_background = np.clip(X_scaled + noise, -5, 5)
     try:
         if req.method == "SHAP":
             result = get_shap_explanation(

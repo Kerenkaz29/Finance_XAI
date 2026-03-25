@@ -111,8 +111,13 @@ def save_lime_plot(result: Dict[str, Any], output_dir: str) -> Optional[str]:
     label_offset = max(lim * 0.01, 0.001)
     for bar, v in zip(bars, values):
         label = f"{v:.4f}"
-        x = bar.get_width() + label_offset if v >= 0 else bar.get_width() - label_offset
-        ha = "left" if v >= 0 else "right"
+        if v >= 0:
+            x = bar.get_width() + label_offset
+            ha = "left"
+        else:
+            # Keep negative labels near zero line to avoid overlapping y-axis feature names.
+            x = 0 + label_offset
+            ha = "left"
         ax.text(
             x,
             bar.get_y() + bar.get_height() / 2,
@@ -122,6 +127,8 @@ def save_lime_plot(result: Dict[str, Any], output_dir: str) -> Optional[str]:
         )
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    # Leave extra room for long feature labels on the left.
+    fig.subplots_adjust(left=0.36)
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
     filename = "lime_explanation.png"
