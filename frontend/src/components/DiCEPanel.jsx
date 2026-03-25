@@ -38,7 +38,16 @@ export function DiCEPanel({ data }) {
       </div>
     )
   }
-  const cfs = data.counterfactuals || []
+  const minScenarioCount = 3
+  const cfsRaw = Array.isArray(data.counterfactuals) ? data.counterfactuals : []
+  const cfs = [...cfsRaw]
+  while (cfs.length < minScenarioCount) {
+    cfs.push({
+      changes: {},
+      changes_display: {},
+      ai_explanation: 'No additional stable counterfactual scenario was found for this instance.',
+    })
+  }
   const dataset = data.dataset || ''
   const useDisplay = !!cfs[0]?.changes_display
   const formatName = (name) => String(name || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
