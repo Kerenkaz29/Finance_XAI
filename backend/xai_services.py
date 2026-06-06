@@ -21,7 +21,7 @@ except ImportError:
     get_ai_feature_labels = None
     get_ai_dice_scenario_explanations = None
 
-# Optional imports so backend can start even if XAI libs missing
+# Optional imports — backend starts even if an XAI library is not installed.
 try:
     import shap
     SHAP_AVAILABLE = True
@@ -40,7 +40,7 @@ except ImportError:
     DICE_AVAILABLE = False
 
 
-# DiCE speed controls (speed-first defaults)
+# DiCE tunables — override via XAI_DICE_* env vars (see backend/README.md).
 DICE_FAST_MODE = os.environ.get("XAI_DICE_FAST_MODE", "1").strip().lower() in ("1", "true", "yes", "on")
 DICE_DEFAULT_NUM_CF = int(os.environ.get("XAI_DICE_NUM_CF", "3"))
 DICE_DIVERSITY_FACTOR = max(1, int(os.environ.get("XAI_DICE_DIVERSITY_FACTOR", "2")))

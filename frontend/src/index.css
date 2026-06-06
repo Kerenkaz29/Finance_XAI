@@ -1,3 +1,4 @@
+/* Global styles — Tailwind layers + display fonts for dashboard headings */
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
 
 @tailwind base;
@@ -10,6 +11,7 @@ body {
   @apply bg-white text-gray-900 antialiased;
 }
 
+/* Used on page titles (e.g. "Financial Model Explainability Platform") */
 .font-display {
   font-family: 'Sora', 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
 }

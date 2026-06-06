@@ -1,3 +1,4 @@
+/** Embedded Google Form for research survey (add route in App.jsx to expose). */
 import React from 'react'
 
 export default function Survey() {

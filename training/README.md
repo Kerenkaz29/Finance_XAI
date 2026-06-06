@@ -69,7 +69,7 @@ python train_models.py --dataset bankruptcy --model mlp
 - **PyTorch:** `output/<dataset>/model_mlp.pt`
 - **Artifacts:** `scaler.pkl`, `feature_names.pkl`, `label_encoders.pkl` (loan only)
 
-Copy or symlink the `output/` folder (or selected subfolders) into the backend so the API can load these models and artifacts.
+Copy or symlink the `output/` folder (or selected subfolders) into the backend so the API can load these models and artifacts. Alternatively, the backend can auto-download pre-trained weights from Google Drive on first start.
 
 ## Project layout
 

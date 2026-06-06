@@ -19,8 +19,9 @@ def load_loan_data(csv_path=None):
 
 
 def preprocess_loan(df: pd.DataFrame):
+    """Encode categoricals, impute missing values, drop ID/target. Returns X, y, names, encoders."""
     df = df.copy()
-    # Drop ID
+    # Drop ID — not a predictive feature
     if "Loan_ID" in df.columns:
         df = df.drop(columns=["Loan_ID"])
 
@@ -54,6 +55,7 @@ def preprocess_loan(df: pd.DataFrame):
 
 
 def run(output_subdir="loan"):
+    """Load CSV, preprocess, split, scale, and write artifacts to output/loan/."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out = os.path.join(OUTPUT_DIR, output_subdir)
     os.makedirs(out, exist_ok=True)

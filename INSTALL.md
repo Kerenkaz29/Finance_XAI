@@ -72,7 +72,7 @@ npm install
 | File | Installs |
 |------|----------|
 | `training\requirements.txt` | pandas, numpy, scikit-learn, torch, joblib, tqdm |
-| `backend\requirements.txt` | fastapi, uvicorn, firebase-admin, numpy, scikit-learn, pandas, joblib, torch, shap, lime, dice-ml, pydantic |
-| `frontend\npm install` | react, react-dom, react-router-dom, plotly.js, react-plotly.js, vite, tailwindcss, etc. |
+| `backend\requirements.txt` | fastapi, uvicorn, numpy, scikit-learn, pandas, joblib, torch, shap, lime, dice-ml, pydantic, google-genai, matplotlib |
+| `frontend\npm install` | react, react-dom, react-router-dom, recharts, vite, tailwindcss, etc. |
 
 After this, you can run training, then start backend and frontend (see RUN.md).

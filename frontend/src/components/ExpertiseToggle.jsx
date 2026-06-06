@@ -1,3 +1,4 @@
+/** Expert / Non-Expert tab toggle — use in layout when wiring non-expert UI. */
 import React from 'react'
 import { useExpertise } from '../context/ExpertiseContext'
 

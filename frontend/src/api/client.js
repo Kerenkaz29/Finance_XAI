@@ -1,6 +1,11 @@
+/**
+ * HTTP client for the FastAPI backend.
+ * Vite dev server proxies /api → http://localhost:8000 (see vite.config.js).
+ */
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  // null timeoutMs disables the timer (used for long-running DiCE requests).
   const controller = new AbortController()
   const useTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0
   const timer = useTimeout ? setTimeout(() => controller.abort(), timeoutMs) : null
@@ -15,6 +20,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
     if (timer) clearTimeout(timer)
   }
 }
+
+// --- Health & readiness ---
 
 export async function health() {
   const res = await fetch(`${API_BASE}/health`)
@@ -31,10 +38,14 @@ export async function getReady() {
   }
 }
 
+// --- Dataset metadata ---
+
 export async function getDatasets() {
   const res = await fetch(`${API_BASE}/datasets`)
   return res.json()
 }
+
+// --- Sample listing & loading (cvision-style: pick records from CSV) ---
 
 export async function getLoanSamples(limit = 50) {
   const res = await fetch(`${API_BASE}/loan/samples?limit=${limit}`)
@@ -71,6 +82,8 @@ export async function getCreditSample(index) {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+// --- Prediction & explainability ---
 
 export async function predict({ dataset = 'loan', features, model_type = 'rf' }) {
   const res = await fetchWithTimeout(`${API_BASE}/predict`, {

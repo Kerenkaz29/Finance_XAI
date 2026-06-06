@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 
 from config import GEMINI_API_KEY
 
-PROMPT_VERSION = "v8_expert_technical_precision"
+PROMPT_VERSION = "v8_expert_technical_precision"  # Bump when changing label prompt rules
 logger = logging.getLogger(__name__)
 
 

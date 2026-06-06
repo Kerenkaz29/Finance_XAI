@@ -41,7 +41,7 @@ _download_progress_lock = threading.Lock()
 _background_cache = {}
 _background_cache_lock = threading.Lock()
 
-# Hardcoded file IDs extracted from the shared Drive folder
+# Google Drive file IDs for pre-trained weights (downloaded on first backend start if missing).
 _DRIVE_FILES = {
     "bankruptcy": {
         "feature_names.pkl": "10uSsrH_P8IZq_0tqrU-gwVWDm70TBh4Y",
@@ -201,6 +201,7 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app_instance):
+    # Non-blocking: download missing weights in background so /health responds immediately.
     threading.Thread(target=_download_models_worker, daemon=True).start()
     yield
 
@@ -744,6 +745,7 @@ def predict_endpoint(req: PredictionRequest):
         else:
             proba_positive = float(proba[0, 0])
         label = "Approved" if pred[0] == 1 else "Denied"
+        # Dataset-specific human-readable labels for the positive class.
         if req.dataset == "bankruptcy":
             label = "Bankrupt" if pred[0] == 1 else "Alive"
         elif req.dataset == "credit_risk":
@@ -779,9 +781,11 @@ def xai_explain(req: XAIRequest):
     X_df = pd.DataFrame(X, columns=feature_names)
     X_scaled = scaler.transform(X_df)
     X_scaled = np.asarray(X_scaled)
+    # DiCE needs a smaller background matrix for speed; SHAP/LIME use more rows.
     bg_rows = 120 if req.method == "DiCE" else 200
     X_background = _get_cached_background(req.dataset, scaler, feature_names, max_rows=bg_rows)
     if X_background is None:
+        # Last-resort synthetic background when neither X_train.npy nor CSV is available.
         rng = np.random.RandomState(42)
         noise = rng.randn(80, X_scaled.shape[1]) * 0.15
         X_background = np.clip(X_scaled + noise, -5, 5)
@@ -823,5 +827,5 @@ def xai_explain(req: XAIRequest):
         return {"error": str(e), "counterfactuals": [], "description": str(e)}
 
 
-# Serve pre-generated explanation images (cvision-style)
+# Serve pre-generated explanation images at /static/outputs/*.png (cvision-style).
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

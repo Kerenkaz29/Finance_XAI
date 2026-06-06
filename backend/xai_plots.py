@@ -16,6 +16,7 @@ except ImportError:
 
 
 def _safe_values(data: Dict[str, Any], key_importance: str = "importance") -> list:
+    """Coerce importance arrays to floats; missing/invalid entries become 0."""
     vals = data.get(key_importance) or data.get("importance_raw") or []
     return [float(x) if x is not None and (isinstance(x, (int, float)) or (hasattr(x, "__float__") and callable(getattr(x, "__float__")))) else 0.0 for x in vals]
 

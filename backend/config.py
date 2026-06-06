@@ -1,4 +1,7 @@
-"""Backend configuration: model paths, CORS."""
+"""
+Backend configuration: model paths, CORS, expertise levels, Gemini API key.
+Loaded once at import; .env is read from the project root (parent of backend/).
+"""
 import os
 from pathlib import Path
 
@@ -30,6 +33,7 @@ EXPERTISE_LEVELS = ["expert", "non_expert"]
 # Optional: Gemini API key for AI-generated feature labels (set to enable dynamic wording)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", "")).strip()
 
+# Allowed frontend origins; Vercel deployments also match allow_origin_regex in main.py.
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",

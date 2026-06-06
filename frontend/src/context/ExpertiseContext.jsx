@@ -1,3 +1,7 @@
+/**
+ * Global expert / non-expert mode (persisted in localStorage).
+ * Wired for future UI toggle; Dashboard currently sends "expert" directly.
+ */
 import { createContext, useContext, useState, useCallback } from 'react'
 
 const ExpertiseContext = createContext({
@@ -7,6 +11,7 @@ const ExpertiseContext = createContext({
 
 export function ExpertiseProvider({ children }) {
   const [mode, setModeState] = useState(() => {
+    // Restore last selected mode across page reloads.
     try {
       return localStorage.getItem('xai_expertise_mode') || 'expert'
     } catch {

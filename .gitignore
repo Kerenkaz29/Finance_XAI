@@ -1,3 +1,5 @@
+# XAI Financial Services — files to exclude from git
+
 # Environment and secrets (do not commit API keys)
 .env
 .env.local

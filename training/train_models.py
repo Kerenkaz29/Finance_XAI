@@ -22,7 +22,7 @@ except ImportError:
 
 
 def load_preprocessed(dataset: str):
-    """dataset: 'loan' | 'bankruptcy' | 'credit_risk'"""
+    """Load numpy arrays, scaler, and feature names from output/<dataset>/."""
     base = os.path.join(OUTPUT_DIR, dataset)
     X_train = np.load(os.path.join(base, "X_train.npy"))
     y_train = np.load(os.path.join(base, "y_train.npy"))
@@ -36,6 +36,7 @@ def load_preprocessed(dataset: str):
 # ----- Ensemble (sklearn) -----
 
 def train_ensemble(X_train, y_train, X_test, y_test, dataset: str, model_type="rf"):
+    """Train rf/gb/lr sklearn classifier and save model_<type>.pkl."""
     base = os.path.join(OUTPUT_DIR, dataset)
     os.makedirs(base, exist_ok=True)
 
@@ -52,7 +53,7 @@ def train_ensemble(X_train, y_train, X_test, y_test, dataset: str, model_type="r
     y_pred = clf.predict(X_test)
     if hasattr(clf, "predict_proba"):
         proba = clf.predict_proba(X_test)
-        # Handle single-class case (e.g. bankruptcy with only one class in split)
+        # Handle single-class test splits (e.g. bankruptcy with imbalanced data).
         y_proba = proba[:, 1] if proba.shape[1] >= 2 else proba[:, 0]
     else:
         y_proba = y_pred.astype(float)
@@ -76,6 +77,7 @@ def train_ensemble(X_train, y_train, X_test, y_test, dataset: str, model_type="r
 
 if TORCH_AVAILABLE:
     class MLP(nn.Module):
+        # Must stay in sync with backend/models/mlp_wrapper.py for inference.
         def __init__(self, n_features, n_classes=2, hidden=(64, 32)):
             super().__init__()
             layers = []
@@ -91,6 +93,7 @@ if TORCH_AVAILABLE:
 
 
 def train_pytorch(X_train, y_train, X_test, y_test, dataset: str, epochs=50, lr=1e-2):
+    """Train MLP and save state_dict + n_features to model_mlp.pt."""
     if not TORCH_AVAILABLE:
         print("PyTorch not installed; skipping .pt model.")
         return None

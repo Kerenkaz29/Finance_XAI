@@ -1,3 +1,4 @@
+/** Horizontal bar chart fallback when the backend PNG (image_url) is unavailable. */
 import React from 'react'
 import {
   BarChart,
@@ -10,6 +11,7 @@ import {
 } from 'recharts'
 
 function ValueLabel(props) {
+  // Custom Recharts label renderer — shows signed impact at bar end.
   const { x, y, width, value, payload } = props || {}
   if (x == null || y == null) return null
   const rawLabel =
@@ -48,6 +50,7 @@ export function SHAPChart({ data, title = 'Feature importance', height = 420 }) 
     : 'Impact on decision (0–10)'
 
   // Use absolute magnitudes like in the example plots, but keep sign in the label.
+  // Reverse so highest importance appears at top in horizontal layout.
   const chartData = names.map((name, i) => {
     const v = Number(rawValues[i])
     const finite = Number.isFinite(v)

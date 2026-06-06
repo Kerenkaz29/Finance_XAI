@@ -1,12 +1,12 @@
 # Frontend — User Interface
 
-Interactive dashboard for the XAI Financial Services project: **Expert** and **Non-Expert** modes, SHAP/LIME/DiCE visualizations, and a feedback survey (S-TIAS, SCS).
+Interactive dashboard for the XAI Financial Services project: prediction + SHAP/LIME/DiCE visualizations for loan approval, bankruptcy, and credit risk models.
 
 ## Tech Stack
 
 - **React 18** + **Vite**
 - **Tailwind CSS** for styling
-- **React Plotly.js** for charts (SHAP feature importance, LIME local explanation)
+- **Recharts** for fallback bar charts (when backend PNGs are unavailable)
 - **React Router** for navigation
 
 ## Setup
@@ -16,37 +16,43 @@ cd frontend
 npm install
 ```
 
+Copy `.env.example` if you need a custom API URL:
+
+```bash
+# Optional — defaults to /api (proxied to localhost:8000 in dev)
+VITE_API_URL=http://localhost:8000
+```
+
 ## Run
 
 ```bash
 npm run dev
 ```
 
-Open http://localhost:5173. The app proxies `/api` to `http://localhost:8000`, so run the backend with:
+Open http://localhost:5173. The dev server proxies `/api` to `http://localhost:8000`, so run the backend with:
 
 ```bash
 cd ../backend && uvicorn main:app --reload --port 8000
 ```
 
+On first visit, a loading overlay may appear while the backend downloads model weights from Google Drive.
+
 ## Features
 
-1. **Expertise toggle (Expert / Non-Expert)**  
-   Stored in `localStorage`; sent to the backend as `expertise` for tailored XAI responses.
+1. **Dashboard**
+   - **Prediction model:** Loan Approval, Corporate Bankruptcy, Credit Risk
+   - **Explainability method:** SHAP, LIME, DiCE
+   - **Auto sample loading:** On dataset change, loads real records from the backend and fills the feature vector
+   - **Run Analysis:** Runs prediction + XAI in one step
+   - **SHAP/LIME:** Shows backend-generated PNG when available; falls back to Recharts bar charts
+   - **DiCE:** Counterfactual scenarios with optional Gemini-generated explanations
 
-2. **Dashboard**  
-   - **Prediction model:** Loan Approval, Corporate Bankruptcy, Credit Risk  
-   - **Explainability method:** SHAP, LIME, DiCE  
-   - **Feature vector:** Comma- or space-separated values (must match the selected dataset’s feature count from training).  
-   - **Get prediction** → shows Approve/Deny and probability.  
-   - **Run X analysis** → shows:
-     - **SHAP:** Horizontal bar chart of feature importance (expert: technical names; non-expert: plain-language labels).
-     - **LIME:** Local explanation bar chart.
-     - **DiCE:** What-if scenarios (changes that would flip the decision).
+2. **Expertise mode**
+   - The UI currently runs in **expert mode** (`expertise: "expert"` sent to the API).
+   - `ExpertiseContext` and `ExpertiseToggle` are available for a future expert/non-expert toggle.
 
-3. **Survey**  
-   - **S-TIAS** (Trust in Automation): 5 items, 1–7 Likert.  
-   - **SCS** (Subjective Clarity/Satisfaction): 5 items, 1–7 Likert.  
-   Submit logs payload to console (you can later send to your backend).
+3. **Survey** (`src/pages/Survey.jsx`)
+   - Embedded Google Form for research feedback. Not currently linked in the router; add a route in `App.jsx` to expose it.
 
 ## Build
 
@@ -61,16 +67,17 @@ npm run preview
 frontend/
 ├── index.html
 ├── package.json
-├── vite.config.js
+├── vite.config.js       # Dev server + /api proxy to backend
 ├── tailwind.config.js
 ├── postcss.config.js
+├── .env.example
 ├── README.md
 └── src/
-    ├── main.jsx
-    ├── App.jsx
+    ├── main.jsx         # React entry point
+    ├── App.jsx          # Routing, model-download gate
     ├── index.css
     ├── api/
-    │   └── client.js       # predict, getXAI, health, getDatasets
+    │   └── client.js    # predict, getXAI, samples, getReady
     ├── context/
     │   └── ExpertiseContext.jsx
     ├── components/

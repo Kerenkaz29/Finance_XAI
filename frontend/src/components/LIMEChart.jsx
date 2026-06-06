@@ -1,3 +1,4 @@
+/** Horizontal bar chart fallback for LIME local explanations (Recharts). */
 import React from 'react'
 import {
   BarChart,
@@ -10,6 +11,7 @@ import {
 } from 'recharts'
 
 function ValueLabel(props) {
+  // Signed contribution label placed at the start of each horizontal bar.
   const { x, y, value, payload } = props || {}
   if (x == null || y == null) return null
   const label =
@@ -41,6 +43,7 @@ export function LIMEChart({ data, title = 'Local explanation', height = 420 }) {
   const names = data.feature_names
   const rawValues = data.importance ?? data.importance_raw ?? []
 
+  // LIME: preserve sign in labels; bar length uses absolute magnitude.
   const chartData = names.map((name, i) => {
     const v = Number(rawValues[i])
     const finite = Number.isFinite(v)

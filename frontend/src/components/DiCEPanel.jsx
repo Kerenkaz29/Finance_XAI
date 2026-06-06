@@ -1,7 +1,9 @@
+/** Renders DiCE counterfactual scenarios with optional Gemini-generated narratives. */
 import React, { useEffect } from 'react'
 
 export function DiCEPanel({ data }) {
   useEffect(() => {
+    // Dev-only diagnostics for DiCE responses (empty scenarios, API errors).
     if (!data) return
     const responseMethod = String(data.method || '').toUpperCase()
     if (responseMethod && responseMethod !== 'DICE') return
@@ -40,6 +42,7 @@ export function DiCEPanel({ data }) {
   }
   const cfs = data.counterfactuals || []
   const dataset = data.dataset || ''
+  // Non-expert responses use changes_display (plain-language feature names from Gemini).
   const useDisplay = !!cfs[0]?.changes_display
   const formatName = (name) => String(name || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
   const maxShownChanges = 3

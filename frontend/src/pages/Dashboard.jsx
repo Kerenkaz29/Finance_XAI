@@ -1,3 +1,7 @@
+/**
+ * Main dashboard: dataset/method selection, sample loading, prediction + XAI visualization.
+ * Currently runs in expert mode (expertise sent as "expert" to the API).
+ */
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { SHAPChart } from '../components/SHAPChart'
 import { LIMEChart } from '../components/LIMEChart'
@@ -11,11 +15,7 @@ const DATASET_LABELS = {
 }
 const METHOD_OPTIONS = ['SHAP', 'LIME', 'DiCE']
 
-// Demo feature vectors per dataset (length must match preprocessed features)
-// Bankruptcy: 10 Altman-Z-based features =
-//   Working Capital/TA, Retained Earnings/TA, ROA(C), Net worth/Assets,
-//   Total Asset Turnover, Debt ratio %, Cash Flow/TA,
-//   Interest Coverage Ratio, Current Ratio, Borrowing dependency
+// Fallback feature vectors when CSV samples are unavailable (lengths must match trained models).
 const DEMO_FEATURES = {
   loan: [1, 0, 0, 5849, 0, 128, 360, 1, 2, 0, 1],
   bankruptcy: [0.15, 0.12, 0.04, 0.55, 0.65, 0.45, 0.06, 3.5, 1.8, 0.30],
@@ -45,6 +45,9 @@ export default function Dashboard() {
   const [apiReady, setApiReady] = useState(false)
   const [sampleLoading, setSampleLoading] = useState(false)
   const selectedSampleRef = useRef({ loan: null, bankruptcy: null, credit_risk: null })
+
+  // --- Sample validation (pick records suitable for the comparison table) ---
+
   const hasValue = (v) => v !== null && v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))
   const isPositiveNumber = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
   const hasValidLoanStoryData = (sample) => {
@@ -102,6 +105,8 @@ export default function Dashboard() {
     if (favorable && adverse) return [favorable, adverse]
     return valid.slice(0, 2)
   }
+
+  // --- Effects: backend connectivity + auto-load samples on dataset change ---
 
   // Fetch datasets and feature counts on load; detect if backend is reachable
   useEffect(() => {
@@ -326,6 +331,8 @@ export default function Dashboard() {
     }
   }, [dataset, apiReady])
 
+  // --- Analysis handlers ---
+
   const runAnalyze = useCallback(async () => {
     setError(null)
     if (sampleLoading) {
@@ -400,6 +407,9 @@ export default function Dashboard() {
     }
   }, [dataset, features, method, featureCounts, sampleLoading])
 
+  // --- Derived UI state & formatting helpers ---
+
+  // Hardcoded expert view; ExpertiseContext/ExpertiseToggle exist for future non-expert UI.
   const isExpert = true
   const probabilityLabelsByDataset = {
     loan: ['Denied', 'Approved'],

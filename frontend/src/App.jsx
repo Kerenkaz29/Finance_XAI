@@ -1,3 +1,7 @@
+/**
+ * App shell: model-download gate, routing, and global ExpertiseProvider.
+ * Shows a loading overlay only on the first visit while weights download from Google Drive.
+ */
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ExpertiseProvider } from './context/ExpertiseContext'
@@ -5,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import { getReady } from './api/client'
 
 function LoadingOverlay({ done, total, current }) {
+  // Shown while backend downloads model weights from Google Drive (first run only).
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
@@ -54,6 +59,7 @@ function App() {
       }
       // Show blocking overlay only for genuine first-time download.
       // Avoid flashing it on every page refresh.
+      // sessionStorage avoids re-showing the overlay on every page refresh.
       const readySeenOnce = sessionStorage.getItem('models_ready_once') === '1'
       const isDownloading = (data.total || 0) > 0 && (data.done || 0) < (data.total || 0)
       if (!readySeenOnce && isDownloading) {

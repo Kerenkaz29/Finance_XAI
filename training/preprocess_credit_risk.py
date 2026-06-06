@@ -12,7 +12,7 @@ import joblib
 from config import DATA_DIR, OUTPUT_DIR, CREDIT_RISK_CSV, RANDOM_STATE, TEST_SIZE
 
 
-# Common column names for Give Me Some Credit (Kaggle)
+# Common column names for Give Me Some Credit (Kaggle) — used for reference/docs.
 DEFAULT_TARGET = "SeriousDlqin2yrs"
 EXPECTED_COLS = [
     "SeriousDlqin2yrs",
@@ -29,6 +29,7 @@ EXPECTED_COLS = [
 
 
 def load_credit_data(csv_path=None):
+    """Load Give Me Some Credit CSV; tries alternate filenames from the Kaggle zip."""
     path = csv_path or os.path.join(DATA_DIR, CREDIT_RISK_CSV)
     if not os.path.isfile(path):
         # Try alternate names from zip
@@ -69,6 +70,7 @@ def preprocess_credit(df: pd.DataFrame, target_col=None):
 
 
 def run(output_subdir="credit_risk"):
+    """Load CSV, preprocess, split, scale, and write artifacts to output/credit_risk/."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out = os.path.join(OUTPUT_DIR, output_subdir)
     os.makedirs(out, exist_ok=True)

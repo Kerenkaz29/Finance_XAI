@@ -5,6 +5,7 @@ import torch.nn as nn
 
 
 class MLP(nn.Module):
+    # Architecture must match training/train_models.py MLP (64→32 hidden, dropout 0.2).
     def __init__(self, n_features, n_classes=2, hidden=(64, 32)):
         super().__init__()
         layers = []
@@ -20,6 +21,8 @@ class MLP(nn.Module):
 
 
 class MLPWrapper:
+    """Sklearn-like interface (predict / predict_proba) over the PyTorch MLP."""
+
     def __init__(self, n_features):
         self.model = MLP(n_features)
         self.model.eval()

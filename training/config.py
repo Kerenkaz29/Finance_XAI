@@ -1,8 +1,10 @@
-"""Paths and config for training. Point DATA_DIR to your datasets folder."""
+"""
+Paths and config for the training pipeline.
+Set XAI_DATA_DIR to the folder containing loan_data_set.csv, american_bankruptcy.csv, etc.
+"""
 import os
 
-# Default: datasets in project sibling folder. Override with env or edit.
-# Example: C:\Users\97254\Desktop\datasets
+# Default: datasets in project sibling folder. Override with XAI_DATA_DIR env var.
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "datasets")
 if os.name == "nt" and not os.path.isdir(_DATA_DIR):
     _DATA_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "datasets")

@@ -34,6 +34,10 @@ BANKRUPTCY_FEATURES = [
 
 
 def preprocess_bankruptcy(df: pd.DataFrame, use_latest_only=True):
+    """
+    One row per company (latest year), 10 Altman-style ratios, binary bankrupt target.
+    Falls back to all numeric columns if expected feature names are missing.
+    """
     df = df.copy()
     # Strip leading/trailing spaces from column names first
     df.columns = [c.strip() for c in df.columns]
@@ -79,6 +83,7 @@ def preprocess_bankruptcy(df: pd.DataFrame, use_latest_only=True):
 
 
 def run(output_subdir="bankruptcy"):
+    """Load CSV, preprocess, split, scale, and write artifacts to output/bankruptcy/."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out = os.path.join(OUTPUT_DIR, output_subdir)
     os.makedirs(out, exist_ok=True)

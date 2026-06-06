@@ -1,6 +1,7 @@
-# XAI Financial Services - One-time install script
+# XAI Financial Services — One-time install script
 # Run from project root: .\install.ps1
 # Requires: Python 3.10+, Node.js 18+ in PATH
+# Creates venv, installs training + backend pip deps, then npm install in frontend/
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot

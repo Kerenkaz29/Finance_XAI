@@ -12,6 +12,7 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 
+# In-memory caches — models are loaded lazily on first request per (dataset, model_type).
 _models = {}
 _scalers = {}
 _feature_names = {}
@@ -19,6 +20,7 @@ _label_encoders = {}
 
 
 def _model_path(dataset: str, model_type: str) -> str:
+    """Resolve artifact path: sklearn .pkl or PyTorch .pt for MLP."""
     base = os.path.join(TRAINING_OUTPUT, dataset)
     if model_type == "mlp":
         return os.path.join(base, "model_mlp.pt")
@@ -65,6 +67,7 @@ def get_feature_names(dataset: str):
 
 
 def get_label_encoders(dataset: str):
+    """Loan-only: categorical encoders saved during preprocessing (for future decode UI)."""
     if dataset == "loan" and dataset not in _label_encoders:
         path = os.path.join(TRAINING_OUTPUT, dataset, "label_encoders.pkl")
         if os.path.isfile(path):
@@ -80,6 +83,7 @@ def predict_proba(model, X: np.ndarray, model_type: str = "rf") -> np.ndarray:
         return model.predict_proba(X)
     if hasattr(model, "predict_proba"):
         return model.predict_proba(X)
+    # Fallback for classifiers without predict_proba: treat hard labels as 0/1 probs.
     pred = model.predict(X)
     return np.column_stack([1 - pred, pred])
 
